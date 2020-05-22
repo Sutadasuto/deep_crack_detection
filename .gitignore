@@ -1,0 +1,6 @@
+__pycache*
+/.idea/
+/*.png
+/*.hdf5
+/results*
+/*.txt
