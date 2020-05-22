@@ -1,8 +1,5 @@
-import tensorflow.keras.backend as K
-
 from tensorflow.keras.layers import Activation, BatchNormalization, Conv2D, Add, Concatenate, Input, MaxPooling2D, \
     UpSampling2D
-from tensorflow.keras.losses import BinaryCrossentropy, Reduction
 from tensorflow.keras.models import Model
 
 

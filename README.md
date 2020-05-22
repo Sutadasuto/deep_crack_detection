@@ -15,6 +15,8 @@ To train and validate on CrackForest and Aigle-RN combined, for example, run:
 python train_and_validate.py --dataset_names "cfd" "aigle-rn" --dataset_paths "path/to/cfd" "path/to/aigle"
 ```
 
+Look at 'models_dict' in _train_and_validate.py_ for a full list of available models.
+
 Below the whole list of available input arguments:
 
 * ("--dataset_names", type=str, nargs="+",

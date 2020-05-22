@@ -3,8 +3,6 @@ import numpy as np
 import scipy.io
 import os
 
-import tensorflow.keras.preprocessing as preprocessing
-
 
 ### Getting image paths
 def create_image_paths(dataset_names, dataset_paths):

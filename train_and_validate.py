@@ -5,7 +5,6 @@ import os
 
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.utils import plot_model
 
 import custom_losses
 import data
@@ -44,7 +43,7 @@ def main(args):
     data.save_results_on_paths(model, training_paths, "results_training")
     data.save_results_on_paths(model, test_paths, "results_test")
     metrics = model.evaluate(x=data.train_image_generator(test_paths, input_size, 1), steps=test_paths.shape[1])
-    result_string = ""
+    result_string = "Dataset: %s\n" % "/".join(args.dataset_names)
     for idx, metric in enumerate(model.metrics_names):
         result_string += "{}: {:.4f}\n".format(metric, metrics[idx])
     with open(os.path.join("results_test", "results.txt"), "w") as f:
