@@ -1,7 +1,7 @@
 import tensorflow.keras.backend as K
 from tensorflow.keras.losses import BinaryCrossentropy
 
-# Smooth factor for dice coefficient. DC = (2 * GT n Pred + 1) / (GT u Pred )
+# Smooth factor for dice coefficient. DC = (2 * GT n Pred + 1) / (GT u Pred + 1)
 smooth = 1
 
 

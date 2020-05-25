@@ -3,6 +3,8 @@ import numpy as np
 import scipy.io
 import os
 
+from math import ceil
+
 
 ### Getting image paths
 def create_image_paths(dataset_names, dataset_paths):
@@ -72,7 +74,7 @@ def get_image(im_path, input_size, normalize=True):
     if normalize:
         im = ((im - im.min()) / (im.max() - im.min()) - 0.5) / 0.5
     else:
-        im = im/255.0
+        im = im / 255.0
     im = im[..., None]  # Channels last
     return im
 
@@ -91,22 +93,25 @@ def get_gt_image(gt_path, input_size):
 
 
 def save_results_on_paths(model, paths, save_to="results"):
-    compound_images = np.concatenate(test_images_from_paths(model, paths), axis=-1)
-    n_im, height, width = compound_images.shape
+    compound_images = test_images_from_paths(model, paths)
+    n_im = len(compound_images[0])
 
     if not os.path.exists(save_to):
         os.makedirs(save_to)
     for im in range(n_im):
         im_name = os.path.split(paths[0][im])[-1]
-        cv2.imwrite(os.path.join(save_to, im_name), 255*compound_images[im, ...])
+        cv2.imwrite(os.path.join(save_to, im_name),
+                    255 * np.concatenate([compound_images[0][im], compound_images[1][im], compound_images[2][im]],
+                                         axis=1))
 
 
 def test_images_from_paths(model, paths):
     input_shape = tuple(model.input.shape[1:-1])
-    predictions = model.predict(test_image_generator(paths, input_shape, 1), steps=paths.shape[1])
-    gts = np.array([get_gt_image(gt_path, input_shape) for gt_path in paths[1, :]])
-    ims = np.array([get_image(im_path, input_shape, normalize=False) for im_path in paths[0, :]])
-    return ims[..., 0], gts, predictions[..., 0]
+    predictions = [model.predict(get_image(im_path, None, normalize=True)[None, ...])[0, :, :, 0] for im_path in
+                   paths[0, :]]
+    gts = [get_gt_image(gt_path, None) for gt_path in paths[1, :]]
+    ims = [get_image(im_path, None, normalize=False)[..., 0] for im_path in paths[0, :]]
+    return [ims, gts, predictions]
 
 
 def test_image_generator(paths, input_size, batch_size=1):
@@ -125,7 +130,7 @@ def test_image_generator(paths, input_size, batch_size=1):
         yield np.array(batch_x)
 
 
-def train_image_generator(paths, input_size, batch_size=1):
+def train_image_generator(paths, input_size, batch_size=1, resize=False):
     _, n_images = paths.shape
     i = 0
     while True:
@@ -139,14 +144,47 @@ def train_image_generator(paths, input_size, batch_size=1):
             gt_path = paths[1][i]
             i += 1
 
-            im = get_image(im_path, input_size)
-            gt = get_gt_image(gt_path, input_size)
-
-            batch_x.append(im)
-            batch_y.append(gt)
+            if resize:
+                im = get_image(im_path, input_size)
+                gt = get_gt_image(gt_path, input_size)
+                batch_x.append(im)
+                batch_y.append(gt)
+            else:
+                im = get_image(im_path, None)
+                gt = get_gt_image(gt_path, None)
+                if input_size:
+                    for corner in get_corners(im, input_size):
+                        batch_x.append(
+                            im[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...])
+                        batch_y.append(
+                            gt[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...])
+                else:
+                    batch_x.append(im)
+                    batch_y.append(gt)
 
         yield np.array(batch_x), np.array(batch_y)
 
+
+def get_corners(im, input_size):
+    h, w, c = im.shape
+    rows = h / input_size[0]
+    cols = w / input_size[0]
+
+    corners = []
+    for i in range(ceil(rows)):
+        for j in range(ceil(cols)):
+            if i + 1 <= rows:
+                y = i * input_size[0]
+            else:
+                y = h - input_size[0]
+
+            if j + 1 <= cols:
+                x = j * input_size[1]
+            else:
+                x = w - input_size[1]
+
+            corners.append([y, x])
+    return corners
 
 # create_image_paths(["cfd-pruned", "esar", "aigle-rn"],
 #                ["/media/winbuntu/databases/CrackForestDatasetPruned", "/media/winbuntu/databases/CrackDataset",

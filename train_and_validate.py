@@ -19,8 +19,9 @@ models_dict = {
 
 
 def main(args):
-    input_size = (256, 256)
+    input_size = (None, None)
     model = models_dict[args.model]((input_size[0], input_size[1], 1))
+    input_size = (256, 256)
     if args.pretrained_weights:
         model.load_weights(args.pretrained_weights)
     model.compile(optimizer=Adam(lr=1e-4), loss=custom_losses.loss(args.alpha), metrics=[custom_losses.dice_coef,
@@ -42,7 +43,7 @@ def main(args):
 
     data.save_results_on_paths(model, training_paths, "results_training")
     data.save_results_on_paths(model, test_paths, "results_test")
-    metrics = model.evaluate(x=data.train_image_generator(test_paths, input_size, 1), steps=test_paths.shape[1])
+    metrics = model.evaluate(x=data.train_image_generator(test_paths, None, 1, False), steps=test_paths.shape[1])
     result_string = "Dataset: %s\n" % "/".join(args.dataset_names)
     for idx, metric in enumerate(model.metrics_names):
         result_string += "{}: {:.4f}\n".format(metric, metrics[idx])
