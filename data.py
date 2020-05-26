@@ -67,6 +67,22 @@ def paths_generator_cfd(dataset_path):
 
 
 ### Loading images for Keras
+def manual_padding(image, n_pooling_layers):
+    # Assuming N pooling layers of size 2x2 with pool size stride (like in U-net and multiscale U-net), we add the
+    # necessary number of rows and columns to have an image fully compatible with up sampling layers.
+    divisor = 2**n_pooling_layers
+    h, w = image.shape
+    new_h = divisor * ceil(h/divisor)
+    new_w = divisor * ceil(w/divisor)
+    if new_h == h and new_w == w:
+        return image
+
+    new_rows = image[h-new_h:, :]
+    image = np.concatenate([image, new_rows], axis=0)
+    new_cols = image[:, w-new_w:]
+    image = np.concatenate([image, new_cols], axis=1)
+    return image
+
 def get_image(im_path, input_size, normalize=True):
     im = cv2.imread(im_path, cv2.IMREAD_GRAYSCALE)
     if input_size:
@@ -75,6 +91,8 @@ def get_image(im_path, input_size, normalize=True):
         im = ((im - im.min()) / (im.max() - im.min()) - 0.5) / 0.5
     else:
         im = im / 255.0
+
+    im = manual_padding(im, n_pooling_layers=4)
     im = im[..., None]  # Channels last
     return im
 
@@ -89,6 +107,7 @@ def get_gt_image(gt_path, input_size):
     n_black = gt.shape[0] * gt.shape[1] - n_white
     if n_black < n_white:
         gt = 1 - gt
+    gt = manual_padding(gt, n_pooling_layers=4)
     return gt
 
 
@@ -107,7 +126,9 @@ def save_results_on_paths(model, paths, save_to="results"):
 
 def test_images_from_paths(model, paths):
     input_shape = tuple(model.input.shape[1:-1])
-    predictions = [model.predict(get_image(im_path, None, normalize=True)[None, ...])[0, :, :, 0] for im_path in
+    if input_shape == (None, None):
+        input_shape = None
+    predictions = [model.predict(get_image(im_path, input_shape, normalize=True)[None, ...])[0, :, :, 0] for im_path in
                    paths[0, :]]
     gts = [get_gt_image(gt_path, None) for gt_path in paths[1, :]]
     ims = [get_image(im_path, None, normalize=False)[..., 0] for im_path in paths[0, :]]
@@ -119,50 +140,87 @@ def test_image_generator(paths, input_size, batch_size=1):
     i = 0
     while True:
         batch_x = []
-        for b in range(batch_size):
+        batch_y = []
+        b = 0
+        while b < batch_size:
             if i == n_images:
                 i = 0
             im_path = paths[0][i]
-            i += 1
+            gt_path = paths[1][i]
 
             im = get_image(im_path, input_size)
+            gt = get_gt_image(gt_path, input_size)
             batch_x.append(im)
-        yield np.array(batch_x)
+            batch_y.append(gt)
+            b += 1
+            i += 1
+
+        yield np.array(batch_x), np.array(batch_y)
 
 
-def train_image_generator(paths, input_size, batch_size=1, resize=False):
+def crop_generator(im, gt, input_size):
+    corners = get_corners(im, input_size)
+    for corner in corners:
+        x = im[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...]
+        y = gt[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...]
+        yield [x, y]
+
+
+def train_image_generator(paths, input_size, batch_size=1, resize=False, count_samples_mode=False):
     _, n_images = paths.shape
     i = 0
+    n_samples = 0
+    prev_im = False
     while True:
         batch_x = []
         batch_y = []
-        for b in range(batch_size):
+        b = 0
+        while b < batch_size:
             if i == n_images:
+                if count_samples_mode:
+                    yield n_samples
                 i = 0
+                n_samples = 0
                 np.random.shuffle(paths.transpose())
             im_path = paths[0][i]
             gt_path = paths[1][i]
-            i += 1
 
             if resize:
                 im = get_image(im_path, input_size)
                 gt = get_gt_image(gt_path, input_size)
                 batch_x.append(im)
                 batch_y.append(gt)
+                n_samples += 1
+                b += 1
+                i += 1
             else:
-                im = get_image(im_path, None)
-                gt = get_gt_image(gt_path, None)
                 if input_size:
-                    for corner in get_corners(im, input_size):
-                        batch_x.append(
-                            im[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...])
-                        batch_y.append(
-                            gt[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...])
+                    if not prev_im:
+                        im = get_image(im_path, None)
+                        gt = get_gt_image(gt_path, None)
+                        win_gen = crop_generator(im, gt, input_size)
+                        prev_im = True
+                    try:
+                        [im, gt] = next(win_gen)
+                        batch_x.append(im)
+                        batch_y.append(gt)
+                        n_samples += 1
+                        b += 1
+                    except StopIteration:
+                        prev_im = False
+                        i += 1
+
                 else:
+                    im = get_image(im_path, None)
+                    gt = get_gt_image(gt_path, None)
                     batch_x.append(im)
                     batch_y.append(gt)
+                    n_samples += 1
+                    b += 1
+                    i += 1
 
-        yield np.array(batch_x), np.array(batch_y)
+        if not count_samples_mode:
+            yield np.array(batch_x), np.array(batch_y)
 
 
 def get_corners(im, input_size):
