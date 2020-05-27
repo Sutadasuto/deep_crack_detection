@@ -24,7 +24,7 @@ Below the whole list of available input arguments:
 * ("--dataset_paths", type=str, nargs="+",
                     help="Path to the folders containing the datasets as downloaded from the original source.")
 * ("--model", type=str, default="unet", help="Network to use.")
-* ("--alpha", type=float, default=0.5, help="Alpha for loss BCE + alpha*DSCloss")
+* ("--alpha", type=float, default=0.5, help="Alpha for loss BCE_loss + alpha*DSC_loss")
 * ("--epochs", type=int, default=150, help="Number of epochs to train.")
 * ("--batch_size", type=int, default=4, help="Batch size for training.")
 * ("--pretrained_weights", type=str, default=None,

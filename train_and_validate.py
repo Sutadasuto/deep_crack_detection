@@ -87,7 +87,7 @@ def parse_args(args=None):
     parser.add_argument("--dataset_paths", type=str, nargs="+",
                         help="Path to the folders containing the datasets as downloaded from the original source.")
     parser.add_argument("--model", type=str, default="unet", help="Network to use.")
-    parser.add_argument("--alpha", type=float, default=0.5, help="Alpha for loss BCE + alpha*DSCloss")
+    parser.add_argument("--alpha", type=float, default=0.5, help="Alpha for loss BCE_loss + alpha*DSC_loss")
     parser.add_argument("--epochs", type=int, default=150, help="Number of epochs to train.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training.")
     parser.add_argument("--pretrained_weights", type=str, default=None,
