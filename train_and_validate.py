@@ -46,6 +46,7 @@ def main(args):
                         steps_per_epoch=n_train_samples // args.batch_size)
     model.save_weights("%s.hdf5" % args.model)
 
+    # Save results using the last epoch's weights
     data.save_results_on_paths(model, training_paths, "results_training")
     data.save_results_on_paths(model, test_paths, "results_test")
     metrics = model.evaluate(x=data.test_image_generator(test_paths, None, 1), steps=test_paths.shape[1])
@@ -53,6 +54,17 @@ def main(args):
     for idx, metric in enumerate(model.metrics_names):
         result_string += "{}: {:.4f}\n".format(metric, metrics[idx])
     with open(os.path.join("results_test", "results.txt"), "w") as f:
+        f.write(result_string.strip())
+
+    # Save results using the min val loss epoch's weights
+    model.load_weights('%s_best.hdf5' % args.model)
+    data.save_results_on_paths(model, training_paths, "results_training_min_val_loss")
+    data.save_results_on_paths(model, test_paths, "results_test_min_val_loss")
+    metrics = model.evaluate(x=data.test_image_generator(test_paths, None, 1), steps=test_paths.shape[1])
+    result_string = "Dataset: %s\n" % "/".join(args.dataset_names)
+    for idx, metric in enumerate(model.metrics_names):
+        result_string += "{}: {:.4f}\n".format(metric, metrics[idx])
+    with open(os.path.join("results_test_min_val_loss", "results.txt"), "w") as f:
         f.write(result_string.strip())
 
     # summarize history for loss
@@ -65,6 +77,7 @@ def main(args):
     plt.legend(history.history.keys(), loc='upper left')
     plt.savefig("training_losses.png")
     # plt.show()
+
 
 
 def parse_args(args=None):
