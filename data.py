@@ -77,11 +77,14 @@ def manual_padding(image, n_pooling_layers):
     if new_h == h and new_w == w:
         return image
 
-    new_rows = image[h-new_h:, :]
-    image = np.concatenate([image, new_rows], axis=0)
-    new_cols = image[:, w-new_w:]
-    image = np.concatenate([image, new_cols], axis=1)
+    if new_h != h:
+        new_rows = np.flip(image[h-new_h:, :], axis=0)
+        image = np.concatenate([image, new_rows], axis=0)
+    if new_w != w:
+        new_cols = np.flip(image[:, w-new_w:], axis=1)
+        image = np.concatenate([image, new_cols], axis=1)
     return image
+
 
 def get_image(im_path, input_size, normalize=True):
     im = cv2.imread(im_path, cv2.IMREAD_GRAYSCALE)
@@ -99,16 +102,19 @@ def get_image(im_path, input_size, normalize=True):
 
 def get_gt_image(gt_path, input_size):
     gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
+    binary = True if len(np.unique(gt)) == 2 else False
     if input_size:
         gt = cv2.resize(gt, input_size)
-    ret, gt = cv2.threshold(gt, 127, 255, cv2.THRESH_BINARY)
+    if binary:
+        ret, gt = cv2.threshold(gt, 127, 255, cv2.THRESH_BINARY)
     gt = (gt / 255)
-    n_white = np.sum(gt)
-    n_black = gt.shape[0] * gt.shape[1] - n_white
-    if n_black < n_white:
-        gt = 1 - gt
+    if binary:
+        n_white = np.sum(gt)
+        n_black = gt.shape[0] * gt.shape[1] - n_white
+        if n_black < n_white:
+            gt = 1 - gt
     gt = manual_padding(gt, n_pooling_layers=4)
-    return gt
+    return gt[..., None]  # Channels last
 
 
 def save_results_on_paths(model, paths, save_to="results"):
@@ -124,14 +130,27 @@ def save_results_on_paths(model, paths, save_to="results"):
                                          axis=1))
 
 
+def test_image_from_path(model, input_path, gt_path):
+    input_shape = tuple(model.input.shape[1:-1])
+    if input_shape == (None, None):
+        input_shape = None
+    prediction = model.predict(get_image(input_path, input_shape, normalize=True)[None, ...])[0, :, :, 0]
+    if gt_path:
+        gt = get_gt_image(gt_path, input_shape)[..., 0]
+    input_image = get_image(input_path, None, normalize=False)[..., 0]
+    if gt_path:
+        return [input_image, gt, prediction]
+    return [input_image, None, prediction]
+
+
 def test_images_from_paths(model, paths):
     input_shape = tuple(model.input.shape[1:-1])
     if input_shape == (None, None):
         input_shape = None
     predictions = [model.predict(get_image(im_path, input_shape, normalize=True)[None, ...])[0, :, :, 0] for im_path in
                    paths[0, :]]
-    gts = [get_gt_image(gt_path, None) for gt_path in paths[1, :]]
-    ims = [get_image(im_path, None, normalize=False)[..., 0] for im_path in paths[0, :]]
+    gts = [get_gt_image(gt_path, input_shape)[..., 0] for gt_path in paths[1, :]]
+    ims = [get_image(im_path, input_shape, normalize=False)[..., 0] for im_path in paths[0, :]]
     return [ims, gts, predictions]
 
 
