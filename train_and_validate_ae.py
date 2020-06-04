@@ -1,3 +1,6 @@
+import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
+
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
