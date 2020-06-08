@@ -1,5 +1,4 @@
-from tensorflow.keras.layers import Activation, BatchNormalization, Conv2D, Add, Concatenate, Input, MaxPooling2D, \
-    UpSampling2D
+from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 
 
@@ -52,14 +51,16 @@ def multiscale_unet(input_shape, channels_last=True):
 
     mp3 = MaxPooling2D()(msb3)
     msb4 = multi_scale_block(mp3, n_filters=512, channels_last=channels_last)
+    drop4 = Dropout(0.5)(msb4)
 
-    rb1 = residual_block(msb4, channels_last=channels_last)
+    rb1 = residual_block(drop4, channels_last=channels_last)
     rb2 = residual_block(rb1, channels_last=channels_last)
     rb3 = residual_block(rb2, channels_last=channels_last)
+    dropr = Dropout(0.5)(rb3)
 
     axis = -1 if channels_last else 1
 
-    ucr1 = Conv2D(filters=256, kernel_size=2, padding="same", activation='relu', kernel_initializer='he_normal')(UpSampling2D()(rb3))
+    ucr1 = Conv2D(filters=256, kernel_size=2, padding="same", activation='relu', kernel_initializer='he_normal')(UpSampling2D()(dropr))
 
     concat1 = Concatenate(axis)([msb3, ucr1])
     cr1 = Conv2D(filters=256, kernel_size=3, padding="same", activation='relu', kernel_initializer='he_normal')(concat1)

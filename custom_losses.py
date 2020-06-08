@@ -25,14 +25,15 @@ def bce_dsc_loss(alpha=0.5):
 
     return hybrid_loss
 
-def bce_kl_loss(model):
-    def kl_reconstruction_loss(y_true, y_pred):
-        # Reconstruction loss
-        reconstruction_loss = binary_crossentropy(K.flatten(y_true), K.flatten(y_pred)) * model.input_shape[1] * model.input_shape[2]
-        # KL divergence loss
-        kl_loss = 1 + model.get_layer("latent_log_sigma").output - K.square(model.get_layer("latent_mu").output) - K.exp(model.get_layer("latent_log_sigma").output)
-        kl_loss = K.sum(kl_loss, axis=-1)
-        kl_loss *= -0.5
-        # Total loss = 50% rec + 50% KL divergence loss
-        return K.mean(reconstruction_loss + kl_loss)
-    return kl_reconstruction_loss
+
+# def bce_kl_loss(model):
+#     def kl_reconstruction_loss(y_true, y_pred):
+#         # Reconstruction loss
+#         reconstruction_loss = binary_crossentropy(K.flatten(y_true), K.flatten(y_pred)) * model.input_shape[1] * model.input_shape[2]
+#         # KL divergence loss
+#         kl_loss = 1 + model.get_layer("latent_log_sigma").output - K.square(model.get_layer("latent_mu").output) - K.exp(model.get_layer("latent_log_sigma").output)
+#         kl_loss = K.sum(kl_loss, axis=-1)
+#         kl_loss *= -0.5
+#         # Total loss = 50% rec + 50% KL divergence loss
+#         return K.mean(reconstruction_loss + kl_loss)
+#     return kl_reconstruction_loss

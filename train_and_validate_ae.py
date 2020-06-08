@@ -9,6 +9,7 @@ import os
 from distutils.util import strtobool
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.optimizers import Adam
+import tensorflow.keras.metrics as keras_metrics
 
 import custom_losses
 import data
@@ -21,10 +22,12 @@ models_dict = get_models_dict()
 
 def main(args):
     input_size = tuple(args.resize_inputs_to)
-    model, loss = models_dict[args.model]((input_size[0], input_size[1], 1))
+    model, loss = models_dict[args.model]((input_size[0], input_size[1], 1), self_supervised=args.self_supervised)
     if args.pretrained_weights:
         model.load_weights(args.pretrained_weights)
-    model.compile(optimizer=Adam(lr=args.learning_rate), loss=loss, metrics=['mse']
+    metrics_list = ['mse'] if args.self_supervised else \
+        [custom_losses.dice_coef, keras_metrics.Precision(), keras_metrics.Recall()]
+    model.compile(optimizer=Adam(lr=args.learning_rate), loss=loss, metrics=metrics_list
                     , experimental_run_tf_function = False
                   )
 
