@@ -39,7 +39,7 @@ def v_unet(input_shape, latent_dim=2, self_supervised=True):
     ## Get latent space random variables
     conv_shape = K.int_shape(conv5)
     flatten = Flatten()(drop5)
-    x = Dense(20, activation='relu')(flatten)
+    x = Dense(latent_dim*10, activation='relu')(flatten)
     mu = Dense(latent_dim, name='latent_mu', activation='linear')(x)
     log_sigma = Dense(latent_dim, name='latent_log_sigma', activation='linear')(x)
     z = Lambda(sample_z, output_shape=(latent_dim,), name='z')([mu, log_sigma])

@@ -22,7 +22,10 @@ models_dict = get_models_dict()
 
 def main(args):
     input_size = tuple(args.resize_inputs_to)
-    model, loss = models_dict[args.model]((input_size[0], input_size[1], 1), self_supervised=args.self_supervised)
+    model, loss = models_dict[args.model]((input_size[0], input_size[1], 1),
+                                          latent_dim=args.latent_space_dim,
+                                          self_supervised=args.self_supervised)
+
     if args.pretrained_weights:
         model.load_weights(args.pretrained_weights)
     metrics_list = ['mse'] if args.self_supervised else \
@@ -96,6 +99,7 @@ def parse_args(args=None):
     parser.add_argument("--dataset_paths", type=str, nargs="+",
                         help="Path to the folders containing the datasets as downloaded from the original source.")
     parser.add_argument("--model", type=str, default="v_unet", help="Network to use.")
+    parser.add_argument("--latent_space_dim", type=int, default=2, help="Number of dimensions in the latent space.")
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for Adam optimizer.")
     parser.add_argument("--epochs", type=int, default=150, help="Number of epochs to train.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training.")
