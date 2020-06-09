@@ -71,6 +71,8 @@ def main(args):
     result_string = "Dataset: %s\nModel: %s\n" % ("/".join(args.dataset_names), args.model)
     for idx, metric in enumerate(model.metrics_names):
         result_string += "{}: {:.4f}\n".format(metric, metrics[idx])
+    for attribute in args.__dict__.keys():
+        result_string += "\n--%s: %s" % (attribute, str(args.__getattribute__(attribute)))
     with open(os.path.join("results_test_min_val_loss", "results.txt"), "w") as f:
         f.write(result_string.strip())
 
