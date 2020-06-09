@@ -96,6 +96,8 @@ def v_unet(input_shape, latent_dim=2, self_supervised=True):
         def reconstruction_loss(y, y_decoded):
             loss = binary_crossentropy(K.flatten(y), K.flatten(y_decoded))
             loss += 0.5 * dice_coef_loss(y, y_decoded)
+            loss /= 1.5
+            loss *= inputs.shape[1] * inputs.shape[2]
             return loss
 
     def my_loss(y, y_decoded):
