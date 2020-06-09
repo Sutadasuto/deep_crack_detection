@@ -64,7 +64,7 @@ def main(args):
         },
     ])
 
-    space = {'latent_space_dim': hp.choice('latent_space_dim', [1, 2, 4]),
+    space = {'latent_space_dim': hp.choice('latent_space_dim', [1, 2, 4, 8, 16, 32, 64]),
              'latent_dim_upscale': hp.choice('latent_dim_upscale', [2, 5, 10])}
 
     def f_nn(params):
