@@ -43,27 +43,6 @@ def main(args):
     n_train_samples = next(data.train_image_generator(training_paths, input_size, args.batch_size, resize=True,
                                                       count_samples_mode=True))
 
-    space = hp.choice('classifier_type', [
-        {
-            'type': 'naive_bayes',
-        },
-        {
-            'type': 'svm',
-            'C': hp.lognormal('svm_C', 0, 1),
-            'kernel': hp.choice('svm_kernel', [
-                {'ktype': 'linear'},
-                {'ktype': 'RBF', 'width': hp.lognormal('svm_rbf_width', 0, 1)},
-            ]),
-        },
-        {
-            'type': 'dtree',
-            'criterion': hp.choice('dtree_criterion', ['gini', 'entropy']),
-            'max_depth': hp.choice('dtree_max_depth',
-                                   [None, hp.qlognormal('dtree_max_depth_int', 3, 1, 1)]),
-            'min_samples_split': hp.qlognormal('dtree_min_samples_split', 2, 1, 1),
-        },
-    ])
-
     space = {'latent_space_dim': hp.choice('latent_space_dim', [1, 2, 4, 8, 16, 32, 64]),
              'latent_dim_upscale': hp.choice('latent_dim_upscale', [2, 5, 10])}
 
@@ -163,8 +142,10 @@ def main(args):
                       , experimental_run_tf_function=False
                       )
 
+        es = EarlyStoppingAtMinValLoss(test_paths, file_path=None, patience=20)
         model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size), epochs=args.epochs,
                   verbose=0,
+                  callbacks=[es],
                   steps_per_epoch=n_train_samples // args.batch_size)
 
         evaluation_input_shape = tuple(model.input.shape[1:-1])
