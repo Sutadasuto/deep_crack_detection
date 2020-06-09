@@ -64,35 +64,102 @@ def main(args):
         },
     ])
 
-    space = {'latent_space_dim': hp.choice('latent_space_dim', [1, 2, 4, 8, 16]),
-             'dropout': hp.uniform('dropout', 0.0, 1.0)}
+    space = {'latent_space_dim': hp.choice('latent_space_dim', [1, 2, 4]),
+             'latent_dim_upscale': hp.choice('latent_dim_upscale', [2, 5, 10])}
 
     def f_nn(params):
 
         inputs = Input(shape=(input_size[0], input_size[1], 1))
         conv1 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(inputs)
         conv1 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv1)
-        drop1 = Dropout(params['dropout'])(conv1)
-        pool1 = MaxPooling2D(pool_size=(2, 2))(drop1)
+        pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
+        conv2 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool1)
+        conv2 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv2)
+        pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
+        conv3 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool2)
+        conv3 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv3)
+        pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
+        conv4 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool3)
+        conv4 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv4)
+        drop4 = Dropout(0.5)(conv4)
+        pool4 = MaxPooling2D(pool_size=(2, 2))(drop4)
 
-        conv_shape = K.int_shape(pool1)
-        flatten = Flatten()(pool1)
-        x = Dense(params['latent_space_dim'], activation='relu')(flatten)
-        y = Dense(conv_shape[1] * conv_shape[2] * conv_shape[3], activation='relu')(x)
+        conv5 = Conv2D(1024, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool4)
+        conv5 = Conv2D(1024, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv5)
+        drop5 = Dropout(0.5)(conv5)
+        ## Get latent space random variables
+        conv_shape = K.int_shape(conv5)
+        flatten = Flatten()(drop5)
+        x = Dense(params["latent_space_dim"] * params["latent_dim_upscale"], activation='relu')(flatten)
+        mu = Dense(params["latent_space_dim"], name='latent_mu', activation='linear')(x)
+        log_sigma = Dense(params["latent_space_dim"], name='latent_log_sigma', activation='linear')(x)
+
+        def sample_z(args):
+            mu, log_sigma = args
+            batch = K.shape(mu)[0]
+            dim = K.int_shape(mu)[1]
+            eps = K.random_normal(shape=(batch, dim), mean=0.0, stddev=1.0)
+            return mu + K.exp(log_sigma / 2) * eps
+        z = Lambda(sample_z, output_shape=(params["latent_space_dim"],), name='z')([mu, log_sigma])
+        encoder = Model(inputs, [z, mu, log_sigma], name="encoder")
+
+        # Decoder
+        ## Transform sampled random variables to multi-channel images
+        latent = Input(shape=z.shape[-1])
+        y = Dense(conv_shape[1] * conv_shape[2] * conv_shape[3], activation='relu')(latent)
         unflatten = Reshape((conv_shape[1], conv_shape[2], conv_shape[3]))(y)
+        up6 = Conv2D(512, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
+            UpSampling2D(size=(2, 2))(unflatten))
+        conv6 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(up6)
+        conv6 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv6)
+
+        up7 = Conv2D(256, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
+            UpSampling2D(size=(2, 2))(conv6))
+        conv7 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(up7)
+        conv7 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv7)
+
+        up8 = Conv2D(128, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
+            UpSampling2D(size=(2, 2))(conv7))
+        conv8 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(up8)
+        conv8 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv8)
 
         up9 = Conv2D(64, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
-            UpSampling2D(size=(2, 2))(unflatten))
+            UpSampling2D(size=(2, 2))(conv8))
         conv9 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(up9)
         conv9 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
         conv9 = Conv2D(2, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
         conv10 = Conv2D(1, 1, activation='sigmoid')(conv9)
-        model = Model(inputs, conv10)
+        decoder = Model([inputs, latent], conv10, name='decoder')
 
-        loss = custom_losses.bce_dsc_loss()
+        outputs = decoder([inputs, encoder(inputs)[0]])
+        model = Model(inputs, outputs, name='vae')
+
+        def kl_loss():
+            loss = 1 + log_sigma - K.square(mu) - K.exp(log_sigma)
+            loss = K.sum(loss, axis=-1)
+            loss *= -0.5
+            return K.mean(loss)
+
+        if args.self_supervised:
+            def reconstruction_loss(y, y_decoded):
+                loss = mse(K.flatten(y), K.flatten(y_decoded))
+                loss *= inputs.shape[1] * inputs.shape[2]
+                return loss
+        else:
+            from custom_losses import dice_coef_loss
+            def reconstruction_loss(y, y_decoded):
+                loss = binary_crossentropy(K.flatten(y), K.flatten(y_decoded))
+                loss += 0.5 * dice_coef_loss(y, y_decoded)
+                loss /= 1.5
+                loss *= inputs.shape[1] * inputs.shape[2]
+                return loss
+
+        def my_loss(y, y_decoded):
+            return reconstruction_loss(y, y_decoded) + kl_loss()
+
         metrics_list = ['mse'] if args.self_supervised else \
             [custom_losses.dice_coef, keras_metrics.Precision(), keras_metrics.Recall()]
-        model.compile(optimizer=Adam(lr=args.learning_rate), loss=loss, metrics=metrics_list
+        model.compile(optimizer=Adam(lr=args.learning_rate), loss=my_loss, metrics=metrics_list
                       , experimental_run_tf_function=False
                       )
 
@@ -116,9 +183,9 @@ def main(args):
         return {'loss': loss, 'status': STATUS_OK}
 
     trials = Trials()
-    best = fmin(f_nn, space, algo=tpe.suggest, max_evals=10, trials=trials)
+    best = fmin(f_nn, space, algo=tpe.suggest, max_evals=args.fmin_max_evals, trials=trials)
     print('best: ')
-    print(best)
+    print(space_eval(space, best))
 
     result = "Best loss: %s\nParameters: %s\n\nLoss, Parameters\n" % (trials.best_trial["result"]["loss"], space_eval(space, best))
     for trial in range(len(trials)):
@@ -137,8 +204,8 @@ def parse_args(args=None):
                         help="Must be one of: 'cfd', 'cfd-pruned', 'aigle-rn', 'esar'")
     parser.add_argument("--dataset_paths", type=str, nargs="+",
                         help="Path to the folders containing the datasets as downloaded from the original source.")
-    parser.add_argument("--model", type=str, default="v_unet", help="Network to use.")
-    parser.add_argument("--latent_space_dim", type=int, default=2, help="Number of dimensions in the latent space.")
+    parser.add_argument("--fmin_max_evals", type=int, default=10, help="'max_evals' argument value for hyperopt's "
+                                                                       "fmin function.")
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for Adam optimizer.")
     parser.add_argument("--epochs", type=int, default=150, help="Number of epochs to train.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training.")
