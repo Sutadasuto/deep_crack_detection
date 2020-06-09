@@ -45,17 +45,20 @@ class EarlyStoppingAtMinValLoss(Callback):
             if metric == "loss":
                 current = metrics[idx]
             logs['val_%s' % metric] = metrics[idx]
-        print(result_string.strip('- '))
+        if self.params["verbose"] > 0:
+            print(result_string.strip('- '))
         if np.less(current, self.best):
             # Record the best weights if current results is better (less).
             self.best_weights = self.model.get_weights()
             if self.file_path:
-                print('Epoch %05d: validation loss improved from %0.5f to %0.5f,  saving model to %s\n' % (
+                if self.params["verbose"] > 0:
+                    print('Epoch %05d: validation loss improved from %0.5f to %0.5f,  saving model to %s\n' % (
                 epoch + 1, self.best, current, self.file_path))
                 self.model.save_weights(self.file_path, overwrite=True)
             else:
-                print('Epoch %05d: validation loss improved from %0.5f to %0.5f\n' % (
-                    epoch + 1, self.best, current))
+                if self.params["verbose"] > 0:
+                    print('Epoch %05d: validation loss improved from %0.5f to %0.5f\n' % (
+                        epoch + 1, self.best, current))
             self.best = current
             self.wait = 0
         else:
