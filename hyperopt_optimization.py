@@ -160,7 +160,7 @@ def main(args):
                 break
 
         tf.keras.backend.clear_session()
-        print('Best loss:', loss)
+        print('Test loss:', loss)
         return {'loss': loss, 'status': STATUS_OK}
 
     trials = Trials()
