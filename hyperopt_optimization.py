@@ -110,7 +110,7 @@ def main(args):
 
         metrics = model.evaluate(x=data.test_image_generator(test_paths, input_size=None, batch_size=1),
                                  steps=test_paths.shape[1], verbose=0)
-        
+
         for idx, metric in enumerate(model.metrics_names):
             if metric == "dice_coef":
                 loss = metrics[idx]
@@ -118,20 +118,20 @@ def main(args):
 
         tf.keras.backend.clear_session()
         print('Test DSC:', loss)
-        return {'loss': loss, 'status': STATUS_OK}
+        return {'loss': -loss, 'status': STATUS_OK}
 
     trials = Trials()
     best = fmin(f_nn, space, algo=tpe.suggest, max_evals=args.fmin_max_evals, trials=trials)
     print('best: ')
     print(space_eval(space, best))
 
-    result = "Best DSC: {:.4f}\nParameters: {}\n\nDSC, Parameters\n".format(trials.best_trial["result"]["loss"], space_eval(space, best))
+    result = "Best DSC: {:.4f}\nParameters: {}\n\nDSC, Parameters\n".format(-trials.best_trial["result"]["loss"], space_eval(space, best))
     for trial in range(len(trials)):
         trial_result = trials.results[trial]['loss']
         trial_dict = {}
         for key in trials.vals.keys():
             trial_dict[key] = trials.vals[key][trial]
-        result += "{:.4f}, {}\n".format(trial_result, space_eval(space, trial_dict))
+        result += "{:.4f}, {}\n".format(-trial_result, space_eval(space, trial_dict))
     with open("hyperparameter_search_result.txt", "w") as f:
         f.write(result.strip())
 
