@@ -29,18 +29,16 @@ models_dict = get_models_dict()
 
 
 def main(args):
-    input_size = tuple(args.resize_inputs_to)
+    input_size = (256, 256)
 
     paths = data.create_image_paths(args.dataset_names, args.dataset_paths)
-    if args.self_supervised:
-        paths[1, :] = paths[0, :]
     n_training_images = int(0.8 * paths.shape[1])
     np.random.seed(0)
     np.random.shuffle(paths.transpose())
     training_paths = paths[:, :n_training_images]
     test_paths = paths[:, n_training_images:]
 
-    n_train_samples = next(data.train_image_generator(training_paths, input_size, params["batch_size"], resize=True,
+    n_train_samples = next(data.train_image_generator(training_paths, input_size, 1, resize=False,
                                                       count_samples_mode=True))
 
     space = {'alpha': hp.choice('alpha', [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]),
@@ -49,8 +47,7 @@ def main(args):
 
     def f_nn(params):
 
-        input_shape = (256, 256, 1)
-        inputs = Input(shape=(input_size[0], input_size[1], 1))
+        inputs = Input(shape=(None, None, 1))
         conv1 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(inputs)
         conv1 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv1)
         pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
@@ -105,17 +102,15 @@ def main(args):
                       )
 
         es = EarlyStoppingAtMinValLoss(test_paths, file_path=None, patience=20)
-        model.fit(x=data.train_image_generator(training_paths, input_size, params["batch_size"]), epochs=args.epochs,
+        model.fit(x=data.train_image_generator(training_paths, input_size, params["batch_size"], resize=False),
+                  epochs=args.epochs,
                   verbose=0,
                   callbacks=[es],
                   steps_per_epoch=n_train_samples // params["batch_size"])
 
-        evaluation_input_shape = tuple(model.input.shape[1:-1])
-        if evaluation_input_shape == (None, None):
-            evaluation_input_shape = None
-        metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, 1),
+        metrics = model.evaluate(x=data.test_image_generator(test_paths, input_size=None, batch_size=1),
                                  steps=test_paths.shape[1], verbose=0)
-
+        
         for idx, metric in enumerate(model.metrics_names):
             if metric == "dice_coef":
                 loss = metrics[idx]
@@ -130,13 +125,13 @@ def main(args):
     print('best: ')
     print(space_eval(space, best))
 
-    result = "Best loss: %s\nParameters: %s\n\nLoss, Parameters\n" % (trials.best_trial["result"]["loss"], space_eval(space, best))
+    result = "Best DSC: {:.4f}\nParameters: {}\n\nDSC, Parameters\n".format(trials.best_trial["result"]["loss"], space_eval(space, best))
     for trial in range(len(trials)):
         trial_result = trials.results[trial]['loss']
         trial_dict = {}
         for key in trials.vals.keys():
             trial_dict[key] = trials.vals[key][trial]
-        result += "%s, %s\n" % (trial_result, space_eval(space, trial_dict))
+        result += "{:.4f}, {}\n".format(trial_result, space_eval(space, trial_dict))
     with open("hyperparameter_search_result.txt", "w") as f:
         f.write(result.strip())
 
@@ -149,17 +144,9 @@ def parse_args(args=None):
                         help="Path to the folders containing the datasets as downloaded from the original source.")
     parser.add_argument("--fmin_max_evals", type=int, default=10, help="'max_evals' argument value for hyperopt's "
                                                                        "fmin function.")
-    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for Adam optimizer.")
     parser.add_argument("--epochs", type=int, default=150, help="Number of epochs to train.")
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for Adam optimizer.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training.")
-    parser.add_argument("--pretrained_weights", type=str, default=None,
-                        help="Load previous weights from this location.")
-    parser.add_argument("--resize_inputs_to", type=int, nargs=2, default=[256, 256], help="Resize images to this "
-                                                                                           "dimensions (commonly used "
-                                                                                           "when the network requires a "
-                                                                                           "specific input size)")
-    parser.add_argument("--self_supervised", type=str, default="True",
-                        help="If 'True', the input images will be used as training target instead of GT annotations.")
 
     args_dict = parser.parse_args(args)
     for attribute in args_dict.__dict__.keys():
