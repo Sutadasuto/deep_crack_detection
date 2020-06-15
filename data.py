@@ -67,6 +67,8 @@ def paths_generator_cfd(dataset_path):
 
 
 ### Loading images for Keras
+
+# Utilities
 def manual_padding(image, n_pooling_layers):
     # Assuming N pooling layers of size 2x2 with pool size stride (like in U-net and multiscale U-net), we add the
     # necessary number of rows and columns to have an image fully compatible with up sampling layers.
@@ -86,12 +88,44 @@ def manual_padding(image, n_pooling_layers):
     return image
 
 
+def get_corners(im, input_size):
+    h, w, c = im.shape
+    rows = h / input_size[0]
+    cols = w / input_size[0]
+
+    corners = []
+    for i in range(ceil(rows)):
+        for j in range(ceil(cols)):
+            if i + 1 <= rows:
+                y = i * input_size[0]
+            else:
+                y = h - input_size[0]
+
+            if j + 1 <= cols:
+                x = j * input_size[1]
+            else:
+                x = w - input_size[1]
+
+            corners.append([y, x])
+    return corners
+
+
+def crop_generator(im, gt, input_size):
+    corners = get_corners(im, input_size)
+    for corner in corners:
+        x = im[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...]
+        y = gt[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...]
+        yield [x, y]
+
+
+# Image generators
 def get_image(im_path, input_size, normalize=True):
     im = cv2.imread(im_path, cv2.IMREAD_GRAYSCALE)
     if input_size:
         im = cv2.resize(im, input_size)
     if normalize:
         im = ((im - im.min()) / (im.max() - im.min()) - 0.5) / 0.5
+        im *= -1  # Negative so cracks are brighter
     else:
         im = im / 255.0
 
@@ -113,45 +147,10 @@ def get_gt_image(gt_path, input_size):
         n_black = gt.shape[0] * gt.shape[1] - n_white
         if n_black < n_white:
             gt = 1 - gt
+    else:
+        gt = 1 - gt
     gt = manual_padding(gt, n_pooling_layers=4)
     return gt[..., None]  # Channels last
-
-
-def save_results_on_paths(model, paths, save_to="results"):
-    compound_images = test_images_from_paths(model, paths)
-    n_im = len(compound_images[0])
-
-    if not os.path.exists(save_to):
-        os.makedirs(save_to)
-    for im in range(n_im):
-        im_name = os.path.split(paths[0][im])[-1]
-        cv2.imwrite(os.path.join(save_to, im_name),
-                    255 * np.concatenate([compound_images[0][im], compound_images[1][im], compound_images[2][im]],
-                                         axis=1))
-
-
-def test_image_from_path(model, input_path, gt_path):
-    input_shape = tuple(model.input.shape[1:-1])
-    if input_shape == (None, None):
-        input_shape = None
-    prediction = model.predict(get_image(input_path, input_shape, normalize=True)[None, ...])[0, :, :, 0]
-    if gt_path:
-        gt = get_gt_image(gt_path, input_shape)[..., 0]
-    input_image = get_image(input_path, None, normalize=False)[..., 0]
-    if gt_path:
-        return [input_image, gt, prediction]
-    return [input_image, None, prediction]
-
-
-def test_images_from_paths(model, paths):
-    input_shape = tuple(model.input.shape[1:-1])
-    if input_shape == (None, None):
-        input_shape = None
-    predictions = [model.predict(get_image(im_path, input_shape, normalize=True)[None, ...])[0, :, :, 0] for im_path in
-                   paths[0, :]]
-    gts = [get_gt_image(gt_path, input_shape)[..., 0] for gt_path in paths[1, :]]
-    ims = [get_image(im_path, input_shape, normalize=False)[..., 0] for im_path in paths[0, :]]
-    return [ims, gts, predictions]
 
 
 def test_image_generator(paths, input_size, batch_size=1):
@@ -175,14 +174,6 @@ def test_image_generator(paths, input_size, batch_size=1):
             i += 1
 
         yield np.array(batch_x), np.array(batch_y)
-
-
-def crop_generator(im, gt, input_size):
-    corners = get_corners(im, input_size)
-    for corner in corners:
-        x = im[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...]
-        y = gt[corner[0]:corner[0] + input_size[0], corner[1]:corner[1] + input_size[1], ...]
-        yield [x, y]
 
 
 def train_image_generator(paths, input_size, batch_size=1, resize=False, count_samples_mode=False):
@@ -242,27 +233,39 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
             yield np.array(batch_x), np.array(batch_y)
 
 
-def get_corners(im, input_size):
-    h, w, c = im.shape
-    rows = h / input_size[0]
-    cols = w / input_size[0]
+# Test model on images
+def save_results_on_paths(model, paths, save_to="results"):
+    compound_images = test_images_from_paths(model, paths)
+    n_im = len(compound_images[0])
 
-    corners = []
-    for i in range(ceil(rows)):
-        for j in range(ceil(cols)):
-            if i + 1 <= rows:
-                y = i * input_size[0]
-            else:
-                y = h - input_size[0]
+    if not os.path.exists(save_to):
+        os.makedirs(save_to)
+    for im in range(n_im):
+        im_name = os.path.split(paths[0][im])[-1]
+        cv2.imwrite(os.path.join(save_to, im_name),
+                    255 * np.concatenate([compound_images[0][im], compound_images[1][im], compound_images[2][im]],
+                                         axis=1))
 
-            if j + 1 <= cols:
-                x = j * input_size[1]
-            else:
-                x = w - input_size[1]
 
-            corners.append([y, x])
-    return corners
+def test_image_from_path(model, input_path, gt_path):
+    input_shape = tuple(model.input.shape[1:-1])
+    if input_shape == (None, None):
+        input_shape = None
+    prediction = model.predict(get_image(input_path, input_shape, normalize=True)[None, ...])[0, :, :, 0]
+    if gt_path:
+        gt = get_gt_image(gt_path, input_shape)[..., 0]
+    input_image = get_image(input_path, None, normalize=False)[..., 0]
+    if gt_path:
+        return [input_image, gt, prediction]
+    return [input_image, None, prediction]
 
-# create_image_paths(["cfd-pruned", "esar", "aigle-rn"],
-#                ["/media/winbuntu/databases/CrackForestDatasetPruned", "/media/winbuntu/databases/CrackDataset",
-#                 "/media/winbuntu/databases/CrackDataset"])
+
+def test_images_from_paths(model, paths):
+    input_shape = tuple(model.input.shape[1:-1])
+    if input_shape == (None, None):
+        input_shape = None
+    predictions = [model.predict(get_image(im_path, input_shape, normalize=True)[None, ...])[0, :, :, 0] for im_path in
+                   paths[0, :]]
+    gts = [get_gt_image(gt_path, input_shape)[..., 0] for gt_path in paths[1, :]]
+    ims = [get_image(im_path, input_shape, normalize=False)[..., 0] for im_path in paths[0, :]]
+    return [ims, gts, predictions]

@@ -40,113 +40,75 @@ def main(args):
     training_paths = paths[:, :n_training_images]
     test_paths = paths[:, n_training_images:]
 
-    n_train_samples = next(data.train_image_generator(training_paths, input_size, args.batch_size, resize=True,
+    n_train_samples = next(data.train_image_generator(training_paths, input_size, params["batch_size"], resize=True,
                                                       count_samples_mode=True))
 
-    space = {'latent_space_dim': hp.choice('latent_space_dim', [1, 2, 4, 8, 16, 32, 64]),
-             'latent_dim_upscale': hp.choice('latent_dim_upscale', [2, 5, 10])}
+    space = {'alpha': hp.choice('alpha', [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]),
+             'activation': hp.choice('activation', ['relu', 'sigmoid', 'linear']),
+             'batch_size': hp.choice('batch_size', [1, 2, 4])}
 
     def f_nn(params):
 
+        input_shape = (256, 256, 1)
         inputs = Input(shape=(input_size[0], input_size[1], 1))
-        conv1 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(inputs)
-        conv1 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv1)
+        conv1 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(inputs)
+        conv1 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv1)
         pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
-        conv2 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool1)
-        conv2 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv2)
+        conv2 = Conv2D(128, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(pool1)
+        conv2 = Conv2D(128, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv2)
         pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-        conv3 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool2)
-        conv3 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv3)
+        conv3 = Conv2D(256, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(pool2)
+        conv3 = Conv2D(256, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv3)
         pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
-        conv4 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool3)
-        conv4 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv4)
+        conv4 = Conv2D(512, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(pool3)
+        conv4 = Conv2D(512, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv4)
         drop4 = Dropout(0.5)(conv4)
         pool4 = MaxPooling2D(pool_size=(2, 2))(drop4)
 
-        conv5 = Conv2D(1024, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool4)
-        conv5 = Conv2D(1024, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv5)
+        conv5 = Conv2D(1024, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(pool4)
+        conv5 = Conv2D(1024, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv5)
         drop5 = Dropout(0.5)(conv5)
-        ## Get latent space random variables
-        conv_shape = K.int_shape(conv5)
-        flatten = Flatten()(drop5)
-        x = Dense(params["latent_space_dim"] * params["latent_dim_upscale"], activation='relu')(flatten)
-        mu = Dense(params["latent_space_dim"], name='latent_mu', activation='linear')(x)
-        log_sigma = Dense(params["latent_space_dim"], name='latent_log_sigma', activation='linear')(x)
 
-        def sample_z(args):
-            mu, log_sigma = args
-            batch = K.shape(mu)[0]
-            dim = K.int_shape(mu)[1]
-            eps = K.random_normal(shape=(batch, dim), mean=0.0, stddev=1.0)
-            return mu + K.exp(log_sigma / 2) * eps
-        z = Lambda(sample_z, output_shape=(params["latent_space_dim"],), name='z')([mu, log_sigma])
-        encoder = Model(inputs, [z, mu, log_sigma], name="encoder")
+        up6 = Conv2D(512, 2, activation=params["activation"], padding='same', kernel_initializer='he_normal')(
+            UpSampling2D(size=(2, 2))(drop5))
+        merge6 = concatenate([drop4, up6], axis=3)
+        conv6 = Conv2D(512, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(merge6)
+        conv6 = Conv2D(512, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv6)
 
-        # Decoder
-        ## Transform sampled random variables to multi-channel images
-        latent = Input(shape=z.shape[-1])
-        y = Dense(conv_shape[1] * conv_shape[2] * conv_shape[3], activation='relu')(latent)
-        unflatten = Reshape((conv_shape[1], conv_shape[2], conv_shape[3]))(y)
-        up6 = Conv2D(512, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
-            UpSampling2D(size=(2, 2))(unflatten))
-        conv6 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(up6)
-        conv6 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv6)
-
-        up7 = Conv2D(256, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
+        up7 = Conv2D(256, 2, activation=params["activation"], padding='same', kernel_initializer='he_normal')(
             UpSampling2D(size=(2, 2))(conv6))
-        conv7 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(up7)
-        conv7 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv7)
+        merge7 = concatenate([conv3, up7], axis=3)
+        conv7 = Conv2D(256, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(merge7)
+        conv7 = Conv2D(256, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv7)
 
-        up8 = Conv2D(128, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
+        up8 = Conv2D(128, 2, activation=params["activation"], padding='same', kernel_initializer='he_normal')(
             UpSampling2D(size=(2, 2))(conv7))
-        conv8 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(up8)
-        conv8 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv8)
+        merge8 = concatenate([conv2, up8], axis=3)
+        conv8 = Conv2D(128, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(merge8)
+        conv8 = Conv2D(128, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv8)
 
-        up9 = Conv2D(64, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
+        up9 = Conv2D(64, 2, activation=params["activation"], padding='same', kernel_initializer='he_normal')(
             UpSampling2D(size=(2, 2))(conv8))
-        conv9 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(up9)
-        conv9 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
-        conv9 = Conv2D(2, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
+        merge9 = concatenate([conv1, up9], axis=3)
+        conv9 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(merge9)
+        conv9 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv9)
+        conv9 = Conv2D(2, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv9)
         conv10 = Conv2D(1, 1, activation='sigmoid')(conv9)
-        decoder = Model([inputs, latent], conv10, name='decoder')
 
-        outputs = decoder([inputs, encoder(inputs)[0]])
-        model = Model(inputs, outputs, name='vae')
+        model = Model(inputs=inputs, outputs=conv10, name="u-net")
 
-        def kl_loss():
-            loss = 1 + log_sigma - K.square(mu) - K.exp(log_sigma)
-            loss = K.sum(loss, axis=-1)
-            loss *= -0.5
-            return K.mean(loss)
+        my_loss = custom_losses.bce_dsc_loss(params["alpha"])
 
-        if args.self_supervised:
-            def reconstruction_loss(y, y_decoded):
-                loss = mse(K.flatten(y), K.flatten(y_decoded))
-                loss *= inputs.shape[1] * inputs.shape[2]
-                return loss
-        else:
-            from custom_losses import dice_coef_loss
-            def reconstruction_loss(y, y_decoded):
-                loss = binary_crossentropy(K.flatten(y), K.flatten(y_decoded))
-                loss += 0.5 * dice_coef_loss(y, y_decoded)
-                loss /= 1.5
-                loss *= inputs.shape[1] * inputs.shape[2]
-                return loss
-
-        def my_loss(y, y_decoded):
-            return reconstruction_loss(y, y_decoded) + kl_loss()
-
-        metrics_list = ['mse'] if args.self_supervised else \
-            [custom_losses.dice_coef, keras_metrics.Precision(), keras_metrics.Recall()]
+        metrics_list = [custom_losses.dice_coef, keras_metrics.Precision(), keras_metrics.Recall()]
         model.compile(optimizer=Adam(lr=args.learning_rate), loss=my_loss, metrics=metrics_list
                       , experimental_run_tf_function=False
                       )
 
         es = EarlyStoppingAtMinValLoss(test_paths, file_path=None, patience=20)
-        model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size), epochs=args.epochs,
+        model.fit(x=data.train_image_generator(training_paths, input_size, params["batch_size"]), epochs=args.epochs,
                   verbose=0,
                   callbacks=[es],
-                  steps_per_epoch=n_train_samples // args.batch_size)
+                  steps_per_epoch=n_train_samples // params["batch_size"])
 
         evaluation_input_shape = tuple(model.input.shape[1:-1])
         if evaluation_input_shape == (None, None):
@@ -155,12 +117,12 @@ def main(args):
                                  steps=test_paths.shape[1], verbose=0)
 
         for idx, metric in enumerate(model.metrics_names):
-            if metric == "loss":
+            if metric == "dice_coef":
                 loss = metrics[idx]
                 break
 
         tf.keras.backend.clear_session()
-        print('Test loss:', loss)
+        print('Test DSC:', loss)
         return {'loss': loss, 'status': STATUS_OK}
 
     trials = Trials()
