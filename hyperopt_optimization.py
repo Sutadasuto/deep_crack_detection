@@ -8,7 +8,7 @@ import os
 
 from distutils.util import strtobool
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam, SGD, RMSprop, Adadelta, Adagrad
 import tensorflow.keras.metrics as keras_metrics
 
 import custom_losses
@@ -41,55 +41,55 @@ def main(args):
     n_train_samples = next(data.train_image_generator(training_paths, input_size, 1, resize=False,
                                                       count_samples_mode=True))
 
-    space = {'alpha': hp.choice('alpha', [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]),
-             'activation': hp.choice('activation', ['relu', 'sigmoid', 'linear']),
-             'batch_size': hp.choice('batch_size', [1, 2, 4])}
+    space = {'alpha': hp.choice('alpha', [0.3, 3.0]),
+             'learning_rate': hp.choice('learning_rate', [1e-3, 1e-4]),
+             'optimizer': hp.choice('optimizer', [SGD, RMSprop, Adam, Adadelta, Adagrad])}
 
     def f_nn(params):
 
         inputs = Input(shape=(None, None, 1))
-        conv1 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(inputs)
-        conv1 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv1)
+        conv1 = Conv2D(64, 3, activation="relu", padding='same', kernel_initializer='he_normal')(inputs)
+        conv1 = Conv2D(64, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv1)
         pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
-        conv2 = Conv2D(128, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(pool1)
-        conv2 = Conv2D(128, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv2)
+        conv2 = Conv2D(128, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool1)
+        conv2 = Conv2D(128, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv2)
         pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-        conv3 = Conv2D(256, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(pool2)
-        conv3 = Conv2D(256, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv3)
+        conv3 = Conv2D(256, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool2)
+        conv3 = Conv2D(256, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv3)
         pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
-        conv4 = Conv2D(512, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(pool3)
-        conv4 = Conv2D(512, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv4)
+        conv4 = Conv2D(512, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool3)
+        conv4 = Conv2D(512, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv4)
         drop4 = Dropout(0.5)(conv4)
         pool4 = MaxPooling2D(pool_size=(2, 2))(drop4)
 
-        conv5 = Conv2D(1024, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(pool4)
-        conv5 = Conv2D(1024, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv5)
+        conv5 = Conv2D(1024, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool4)
+        conv5 = Conv2D(1024, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv5)
         drop5 = Dropout(0.5)(conv5)
 
-        up6 = Conv2D(512, 2, activation=params["activation"], padding='same', kernel_initializer='he_normal')(
+        up6 = Conv2D(512, 2, activation="relu", padding='same', kernel_initializer='he_normal')(
             UpSampling2D(size=(2, 2))(drop5))
         merge6 = concatenate([drop4, up6], axis=3)
-        conv6 = Conv2D(512, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(merge6)
-        conv6 = Conv2D(512, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv6)
+        conv6 = Conv2D(512, 3, activation="relu", padding='same', kernel_initializer='he_normal')(merge6)
+        conv6 = Conv2D(512, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv6)
 
-        up7 = Conv2D(256, 2, activation=params["activation"], padding='same', kernel_initializer='he_normal')(
+        up7 = Conv2D(256, 2, activation="relu", padding='same', kernel_initializer='he_normal')(
             UpSampling2D(size=(2, 2))(conv6))
         merge7 = concatenate([conv3, up7], axis=3)
-        conv7 = Conv2D(256, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(merge7)
-        conv7 = Conv2D(256, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv7)
+        conv7 = Conv2D(256, 3, activation="relu", padding='same', kernel_initializer='he_normal')(merge7)
+        conv7 = Conv2D(256, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv7)
 
-        up8 = Conv2D(128, 2, activation=params["activation"], padding='same', kernel_initializer='he_normal')(
+        up8 = Conv2D(128, 2, activation="relu", padding='same', kernel_initializer='he_normal')(
             UpSampling2D(size=(2, 2))(conv7))
         merge8 = concatenate([conv2, up8], axis=3)
-        conv8 = Conv2D(128, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(merge8)
-        conv8 = Conv2D(128, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv8)
+        conv8 = Conv2D(128, 3, activation="relu", padding='same', kernel_initializer='he_normal')(merge8)
+        conv8 = Conv2D(128, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv8)
 
-        up9 = Conv2D(64, 2, activation=params["activation"], padding='same', kernel_initializer='he_normal')(
+        up9 = Conv2D(64, 2, activation="relu", padding='same', kernel_initializer='he_normal')(
             UpSampling2D(size=(2, 2))(conv8))
         merge9 = concatenate([conv1, up9], axis=3)
-        conv9 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(merge9)
-        conv9 = Conv2D(64, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv9)
-        conv9 = Conv2D(2, 3, activation=params["activation"], padding='same', kernel_initializer='he_normal')(conv9)
+        conv9 = Conv2D(64, 3, activation="relu", padding='same', kernel_initializer='he_normal')(merge9)
+        conv9 = Conv2D(64, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv9)
+        conv9 = Conv2D(2, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv9)
         conv10 = Conv2D(1, 1, activation='sigmoid')(conv9)
 
         model = Model(inputs=inputs, outputs=conv10, name="u-net")
@@ -97,16 +97,16 @@ def main(args):
         my_loss = custom_losses.bce_dsc_loss(params["alpha"])
 
         metrics_list = [custom_losses.dice_coef, keras_metrics.Precision(), keras_metrics.Recall()]
-        model.compile(optimizer=Adam(lr=args.learning_rate), loss=my_loss, metrics=metrics_list
+        model.compile(optimizer=params["optimizer"](lr=params["learning_rate"]), loss=my_loss, metrics=metrics_list
                       , experimental_run_tf_function=False
                       )
 
         es = EarlyStoppingAtMinValLoss(test_paths, file_path=None, patience=20)
-        model.fit(x=data.train_image_generator(training_paths, input_size, params["batch_size"], resize=False),
+        model.fit(x=data.train_image_generator(training_paths, input_size, 4, resize=False),
                   epochs=args.epochs,
                   verbose=0,
                   callbacks=[es],
-                  steps_per_epoch=n_train_samples // params["batch_size"])
+                  steps_per_epoch=n_train_samples // 4)
 
         metrics = model.evaluate(x=data.test_image_generator(test_paths, input_size=None, batch_size=1),
                                  steps=test_paths.shape[1], verbose=0)
@@ -116,8 +116,25 @@ def main(args):
                 loss = metrics[idx]
                 break
 
+        try:
+            with open("best_dsc.txt", "r") as f:
+                best_dsc = float(f.read())
+        except FileNotFoundError:
+            best_dsc = 0
+
+        if loss > best_dsc:
+            with open("best_dsc.txt", "w") as f:
+                f.write(str(loss))
+            model_json = model.to_json()
+            with open("best_dsc_model.json", "w") as json_file:
+                json_file.write(model_json)
+            model.save_weights("best_dsc_weights.hdf5")
+            data.save_results_on_paths(model, training_paths, "results_training")
+            data.save_results_on_paths(model, test_paths, "results_test")
+
         tf.keras.backend.clear_session()
         print('Test DSC:', loss)
+        print('Params: %s' % str(params))
         return {'loss': -loss, 'status': STATUS_OK}
 
     trials = Trials()
@@ -134,6 +151,9 @@ def main(args):
         result += "{:.4f}, {}\n".format(-trial_result, space_eval(space, trial_dict))
     with open("hyperparameter_search_result.txt", "w") as f:
         f.write(result.strip())
+
+    if os.path.exists("best_dsc.txt"):
+        os.remove("best_dsc.txt")
 
 
 def parse_args(args=None):

@@ -39,9 +39,11 @@ def vae(input_shape, latent_dim=2, self_supervised=True):
     ## Get latent space random variables
     conv_shape = K.int_shape(conv5)
     flatten = Flatten()(drop5)
-    x = Dense(latent_dim*10, activation='relu')(flatten)
-    mu = Dense(latent_dim, name='latent_mu', activation='linear')(x)
-    log_sigma = Dense(latent_dim, name='latent_log_sigma', activation='linear')(x)
+    # x = Dense(latent_dim*10, activation='relu')(flatten)
+    # mu = Dense(latent_dim, name='latent_mu', activation='linear')(x)
+    mu = Dense(latent_dim, name='latent_mu', activation='linear')(flatten)
+    # log_sigma = Dense(latent_dim, name='latent_log_sigma', activation='linear')(x)
+    log_sigma = Dense(latent_dim, name='latent_log_sigma', activation='linear')(flatten)
     z = Lambda(sample_z, output_shape=(latent_dim,), name='z')([mu, log_sigma])
     encoder = Model(inputs, [z, mu, log_sigma], name="encoder")
 
@@ -83,10 +85,13 @@ def vae(input_shape, latent_dim=2, self_supervised=True):
         return K.mean(loss)
 
     if self_supervised:
-        def reconstruction_loss(y, y_decoded):
-            loss = mse(K.flatten(y), K.flatten(y_decoded))
-            # loss *= inputs.shape[1] * inputs.shape[2]
-            return loss
+        # def reconstruction_loss(y, y_decoded):
+        #     loss = mse(K.flatten(y), K.flatten(y_decoded))
+        #     # loss *= inputs.shape[1] * inputs.shape[2]
+        #     return loss
+        from custom_losses import LM_Loss
+        reconstruction_loss = LM_Loss().loss
+
     else:
         from custom_losses import dice_coef_loss
         def reconstruction_loss(y, y_decoded):
@@ -98,7 +103,7 @@ def vae(input_shape, latent_dim=2, self_supervised=True):
             return loss
 
     def my_loss(y, y_decoded):
-        beta = 0.999
+        beta = 1
         return beta * reconstruction_loss(y, y_decoded) + (1 - beta) * kl_loss()
 
     return vae, my_loss
