@@ -5,3 +5,4 @@ __pycache*
 /*.json
 /results*
 /*.txt
+/training_histories
