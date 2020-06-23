@@ -83,11 +83,14 @@ def vae_mnist(input_size, latent_dim=2, self_supervised=True):
     # vae.summary()
 
 
+    from custom_losses import LM_Loss
+    lm = LM_Loss()
     # Define loss
     def kl_reconstruction_loss(true, pred):
         # Reconstruction loss
         # reconstruction_loss = binary_crossentropy(K.flatten(true), K.flatten(pred)) * img_width * img_height
-        reconstruction_loss = mse(K.flatten(true), K.flatten(pred)) * img_width * img_height
+        # reconstruction_loss = mse(K.flatten(true), K.flatten(pred)) * img_width * img_height
+        reconstruction_loss = lm.loss(true, pred)
         # KL divergence loss
         kl_loss = 1 + sigma - K.square(mu) - K.exp(sigma)
         kl_loss = K.sum(kl_loss, axis=-1)

@@ -1,10 +1,12 @@
 import tensorflow as tf
+
 tf.compat.v1.disable_eager_execution()
 
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import pickle
 
 from distutils.util import strtobool
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
@@ -49,12 +51,12 @@ def main(args):
         s = list(iterable)
         return chain.from_iterable(combinations(s, r) for r in range(len(s) + 1))
 
-    space = {'alpha': hp.choice('alpha', [0.3, 3.0]),
-             'learning_rate': hp.choice('learning_rate', [1e-3, 1e-4]),
-             'optimizer': hp.choice('optimizer', [SGD, RMSprop, Adam, Adadelta, Adagrad]),
-             'batch_normalization_layers': hp.choice('batch_normalization_layers', list(powerset([i for i in range(1, 6)]))),
+    space = {'alpha': hp.choice('alpha', [0.3, 3.0, 5.0]),
+             'learning_rate': hp.choice('learning_rate', [0.001, 0.0005, 0.0001, 0.00005, 0.00001]),
+             'batch_normalization_layers': hp.choice('batch_normalization_layers',
+                                                     list(powerset([i for i in range(1, 6)]))),
              'dropout_layers': hp.choice('dropout_layers', list(powerset([i for i in range(1, 6)]))),
-             'dropout': hp.uniform('dropout', 0.0, 1.0),
+             'dropout': hp.uniform('dropout', 0.01, 0.2),
              'pooling': hp.choice('pooling', [True, False])}
 
     def f_nn(params):
@@ -63,7 +65,8 @@ def main(args):
 
         inputs = Input(shape=(None, None, 1))
         conv1 = Conv2D(64, 3, activation="relu", padding='same', kernel_initializer='he_normal')(inputs)
-        conv1_1 = Conv2D(64, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(conv1)
+        conv1_1 = Conv2D(64, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(
+            conv1)
         if params["pooling"]:
             pool1 = MaxPooling2D(pool_size=(2, 2))(conv1_1)
         else:
@@ -73,7 +76,8 @@ def main(args):
         if 1 in params["dropout_layers"]:
             pool1 = Dropout(params["dropout"])(pool1)
         conv2 = Conv2D(128, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool1)
-        conv2_1 = Conv2D(128, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(conv2)
+        conv2_1 = Conv2D(128, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(
+            conv2)
         if params["pooling"]:
             pool2 = MaxPooling2D(pool_size=(2, 2))(conv2_1)
         else:
@@ -83,7 +87,8 @@ def main(args):
         if 2 in params["dropout_layers"]:
             pool2 = Dropout(params["dropout"])(pool2)
         conv3 = Conv2D(256, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool2)
-        conv3_1 = Conv2D(256, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(conv3)
+        conv3_1 = Conv2D(256, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(
+            conv3)
         if params["pooling"]:
             pool3 = MaxPooling2D(pool_size=(2, 2))(conv3_1)
         else:
@@ -93,7 +98,8 @@ def main(args):
         if 3 in params["dropout_layers"]:
             pool3 = Dropout(params["dropout"])(pool3)
         conv4 = Conv2D(512, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool3)
-        conv4_1 = Conv2D(512, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(conv4)
+        conv4_1 = Conv2D(512, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(
+            conv4)
         if params["pooling"]:
             pool4 = MaxPooling2D(pool_size=(2, 2))(conv4_1)
         else:
@@ -173,16 +179,16 @@ def main(args):
         my_loss = custom_losses.bce_dsc_loss(params["alpha"])
 
         metrics_list = [custom_losses.dice_coef, keras_metrics.Precision(), keras_metrics.Recall()]
-        model.compile(optimizer=params["optimizer"](lr=params["learning_rate"]), loss=my_loss, metrics=metrics_list
+        model.compile(optimizer=Adam(lr=params["learning_rate"]), loss=my_loss, metrics=metrics_list
                       , experimental_run_tf_function=False
                       )
 
         es = EarlyStoppingAtMinValLoss(test_paths, file_path=None, patience=20)
         history = model.fit(x=data.train_image_generator(training_paths, input_size, 4, resize=False),
-                  epochs=args.epochs,
-                  verbose=0,
-                  callbacks=[es],
-                  steps_per_epoch=n_train_samples // 4)
+                            epochs=args.epochs,
+                            verbose=0,
+                            callbacks=[es],
+                            steps_per_epoch=n_train_samples // 4)
 
         metrics = model.evaluate(x=data.test_image_generator(test_paths, input_size=None, batch_size=1),
                                  steps=test_paths.shape[1], verbose=0)
@@ -212,7 +218,6 @@ def main(args):
         for key in history.history.keys():
             if key in ["val_dice_coef", "dice_coef"]:
                 plt.plot(history.history[key])
-            # plt.ylim((0.0, 1.0 + args.alpha))
         plt.ylim((0.0, 1.0))
         plt.title('model losses')
         plt.ylabel('value')
@@ -229,12 +234,27 @@ def main(args):
         print('Params: %s' % str(params))
         return {'loss': -loss, 'status': STATUS_OK}
 
-    trials = Trials()
+    try:  # try to load an already saved trials object, and increase the max
+        trials = pickle.load(open("my_model.hyperopt", "rb"))
+        print("Found saved Trials! Loading...")
+        print("Rerunning from {} trials to {} (+{}) trials".format(len(trials.trials), len(trials.trials),
+                                                                   args.fmin_max_evals))
+        global iteration
+        iteration += len(trials.trials)
+        args.fmin_max_evals = len(trials.trials) + args.fmin_max_evals
+    except:  # create a new trials object and start searching
+        trials = Trials()
+        
     best = fmin(f_nn, space, algo=tpe.suggest, max_evals=args.fmin_max_evals, trials=trials)
     print('best: ')
     print(space_eval(space, best))
 
-    result = "Best DSC: {:.4f}\nParameters: {}\n\nDSC, Parameters\n".format(-trials.best_trial["result"]["loss"], space_eval(space, best))
+    # save the trials object
+    with open("my_model.hyperopt", "wb") as f:
+        pickle.dump(trials, f)
+
+    result = "Best DSC: {:.4f}\nParameters: {}\n\nDSC, Parameters\n".format(-trials.best_trial["result"]["loss"],
+                                                                            space_eval(space, best))
     for trial in range(len(trials)):
         trial_result = trials.results[trial]['loss']
         trial_dict = {}
