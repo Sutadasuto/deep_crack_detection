@@ -6,3 +6,4 @@ __pycache*
 /results*
 /*.txt
 /training_histories
+/*.hyperopt
