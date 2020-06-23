@@ -47,8 +47,8 @@ class LM_Loss(object):
         for layer in self.lm_model.layers:
             layer.trainable = False
         self.lm_model.build()
-        # self.LossFunction = MeanSquaredError()
-        self.LossFunction = CosineSimilarity()
+        self.LossFunction = MeanSquaredError()
+        # self.LossFunction = CosineSimilarity()
 
     def kernel_initializer(self, input_shape, dtype=None):
         return np.expand_dims(self.leung_malik.make_filters().astype(np.float32), axis=2)
