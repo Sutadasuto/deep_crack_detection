@@ -327,9 +327,9 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
     flips = [None, "h", "v"]
 
     # This means no noise, no rotation and no flip (i.e. only the original image is provided)
-    noises = [None]
-    rotations = [None]
-    flips = [None]
+    # noises = [None]
+    # rotations = [None]
+    # flips = [None]
 
     n_transformations = len(noises) * len(rotations) * len(flips)
 

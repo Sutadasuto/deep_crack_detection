@@ -130,7 +130,7 @@ def main(args):
                       )
 
         es = EarlyStoppingAtMinValLoss(test_paths, file_path=None, patience=20, rgb_preprocessor=rgb_preprocessor)
-        history = model.fit(x=data.train_image_generator(training_paths, input_size, 4, resize=False,
+        history = model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size, resize=False,
                                                          rgb_preprocessor=rgb_preprocessor),
                             epochs=args.epochs,
                             verbose=0,
