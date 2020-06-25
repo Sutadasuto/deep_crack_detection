@@ -3,6 +3,7 @@ import tensorflow as tf
 tf.compat.v1.disable_eager_execution()
 
 import argparse
+import importlib
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -12,6 +13,7 @@ from distutils.util import strtobool
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.optimizers import Adam, SGD, RMSprop, Adadelta, Adagrad
 import tensorflow.keras.metrics as keras_metrics
+from tensorflow.keras.applications import VGG19
 
 import custom_losses
 import data
@@ -42,7 +44,7 @@ def main(args):
     test_paths = paths[:, n_training_images:]
 
     n_train_samples = next(data.train_image_generator(training_paths, input_size, 1, resize=False,
-                                                      count_samples_mode=True))
+                                                      count_samples_mode=True, rgb_preprocessor=None))
 
     from itertools import chain, combinations
 
@@ -53,128 +55,72 @@ def main(args):
 
     space = {'alpha': hp.choice('alpha', [0.3, 3.0, 5.0]),
              'learning_rate': hp.choice('learning_rate', [0.001, 0.0005, 0.0001, 0.00005, 0.00001]),
-             'batch_normalization_layers': hp.choice('batch_normalization_layers',
-                                                     list(powerset([i for i in range(1, 6)]))),
-             'dropout_layers': hp.choice('dropout_layers', list(powerset([i for i in range(1, 6)]))),
-             'dropout': hp.uniform('dropout', 0.01, 0.2),
-             'pooling': hp.choice('pooling', [True, False])}
+             'train_vgg': hp.choice('train_vgg', [True, False])}
 
     def f_nn(params):
 
-        strides = 1 if params["pooling"] else 2
+        vgg19 = VGG19(include_top=False, weights='imagenet', input_tensor=None, input_shape=(None, None, 3), pooling=None)
+        encoder = Model(vgg19.input, vgg19.get_layer("block5_conv4").output, name="encoder")
 
-        inputs = Input(shape=(None, None, 1))
-        conv1 = Conv2D(64, 3, activation="relu", padding='same', kernel_initializer='he_normal')(inputs)
-        conv1_1 = Conv2D(64, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(
-            conv1)
-        if params["pooling"]:
-            pool1 = MaxPooling2D(pool_size=(2, 2))(conv1_1)
-        else:
-            pool1 = conv1_1
-        if 1 in params["batch_normalization_layers"]:
-            pool1 = BatchNormalization()(pool1)
-        if 1 in params["dropout_layers"]:
-            pool1 = Dropout(params["dropout"])(pool1)
-        conv2 = Conv2D(128, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool1)
-        conv2_1 = Conv2D(128, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(
-            conv2)
-        if params["pooling"]:
-            pool2 = MaxPooling2D(pool_size=(2, 2))(conv2_1)
-        else:
-            pool2 = conv2_1
-        if 2 in params["batch_normalization_layers"]:
-            pool2 = BatchNormalization()(pool2)
-        if 2 in params["dropout_layers"]:
-            pool2 = Dropout(params["dropout"])(pool2)
-        conv3 = Conv2D(256, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool2)
-        conv3_1 = Conv2D(256, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(
-            conv3)
-        if params["pooling"]:
-            pool3 = MaxPooling2D(pool_size=(2, 2))(conv3_1)
-        else:
-            pool3 = conv3_1
-        if 3 in params["batch_normalization_layers"]:
-            pool3 = BatchNormalization()(pool3)
-        if 3 in params["dropout_layers"]:
-            pool3 = Dropout(params["dropout"])(pool3)
-        conv4 = Conv2D(512, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool3)
-        conv4_1 = Conv2D(512, 3, activation="relu", padding='same', strides=strides, kernel_initializer='he_normal')(
-            conv4)
-        if params["pooling"]:
-            pool4 = MaxPooling2D(pool_size=(2, 2))(conv4_1)
-        else:
-            pool4 = conv4_1
-        if 4 in params["batch_normalization_layers"]:
-            pool4 = BatchNormalization()(pool4)
-        if 4 in params["dropout_layers"]:
-            pool4 = Dropout(params["dropout"])(pool4)
+        encoder.trainable = params["train_vgg"]
 
-        conv5 = Conv2D(1024, 3, activation="relu", padding='same', kernel_initializer='he_normal')(pool4)
-        conv5 = Conv2D(1024, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv5)
-        if 5 in params["batch_normalization_layers"]:
-            conv5 = BatchNormalization()(conv5)
-        if 5 in params["dropout_layers"]:
-            conv5 = Dropout(params["dropout"])(conv5)
+        d_i = Input(shape=(encoder.output.shape[1:]), name='decoder_input')
+        block5_up = UpSampling2D(size=(2, 2), name="block5_up")(d_i)
 
-        up6 = Conv2D(512, 2, activation="relu", padding='same', kernel_initializer='he_normal')(
-            UpSampling2D(size=(2, 2))(conv5))
-        if 5 in params["batch_normalization_layers"]:
-            up6 = BatchNormalization()(up6)
-        if 5 in params["dropout_layers"]:
-            up6 = Dropout(params["dropout"])(up6)
-        if params["pooling"]:
-            merge6 = concatenate([conv4_1, up6], axis=3)
-        else:
-            merge6 = concatenate([conv4, up6], axis=3)
-        conv6 = Conv2D(512, 3, activation="relu", padding='same', kernel_initializer='he_normal')(merge6)
-        conv6 = Conv2D(512, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv6)
+        block4_merge = Concatenate(axis=-1, name="block4_merge")([vgg19.get_layer("block4_conv4").output, block5_up])
+        block4_1_conv1 = Conv2D(filters=512, kernel_size=3, padding='same', activation='relu', name="block4_1_conv1")(
+            block4_merge)
+        block4_1_conv2 = Conv2D(filters=512, kernel_size=3, padding='same', activation='relu', name="block4_1_conv2")(
+            block4_1_conv1)
+        block4_1_conv3 = Conv2D(filters=512, kernel_size=3, padding='same', activation='relu', name="block4_1_conv3")(
+            block4_1_conv2)
+        block4_1_conv4 = Conv2D(filters=512, kernel_size=3, padding='same', activation='relu', name="block4_1_conv4")(
+            block4_1_conv3)
+        block4_up = UpSampling2D(size=(2, 2), name="block4_up")(block4_1_conv4)
 
-        up7 = Conv2D(256, 2, activation="relu", padding='same', kernel_initializer='he_normal')(
-            UpSampling2D(size=(2, 2))(conv6))
-        if 4 in params["batch_normalization_layers"]:
-            up7 = BatchNormalization()(up7)
-        if 4 in params["dropout_layers"]:
-            up7 = Dropout(params["dropout"])(up7)
-        if params["pooling"]:
-            merge7 = concatenate([conv3_1, up7], axis=3)
-        else:
-            merge7 = concatenate([conv3, up7], axis=3)
-        conv7 = Conv2D(256, 3, activation="relu", padding='same', kernel_initializer='he_normal')(merge7)
-        conv7 = Conv2D(256, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv7)
+        block3_merge = Concatenate(axis=-1, name="block3_merge")([vgg19.get_layer("block3_conv4").output, block4_up])
+        block3_1_conv1 = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu', name="block3_1_conv1")(
+            block3_merge)
+        block3_1_conv2 = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu', name="block3_1_conv2")(
+            block3_1_conv1)
+        block3_1_conv3 = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu', name="block3_1_conv3")(
+            block3_1_conv2)
+        block3_1_conv4 = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu', name="block3_1_conv4")(
+            block3_1_conv3)
+        block3_up = UpSampling2D(size=(2, 2), name="block3_up")(block3_1_conv4)
 
-        up8 = Conv2D(128, 2, activation="relu", padding='same', kernel_initializer='he_normal')(
-            UpSampling2D(size=(2, 2))(conv7))
-        if 3 in params["batch_normalization_layers"]:
-            up8 = BatchNormalization()(up8)
-        if 3 in params["dropout_layers"]:
-            up8 = Dropout(params["dropout"])(up8)
-        if params["pooling"]:
-            merge8 = concatenate([conv2_1, up8], axis=3)
-        else:
-            merge8 = concatenate([conv2, up8], axis=3)
-        conv8 = Conv2D(128, 3, activation="relu", padding='same', kernel_initializer='he_normal')(merge8)
-        conv8 = Conv2D(128, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv8)
+        block2_merge = Concatenate(axis=-1, name="block2_merge")([vgg19.get_layer("block2_conv2").output, block3_up])
+        block2_1_conv1 = Conv2D(filters=128, kernel_size=3, padding='same', activation='relu', name="block2_1_conv1")(
+            block2_merge)
+        block2_1_conv2 = Conv2D(filters=128, kernel_size=3, padding='same', activation='relu', name="block2_1_conv2")(
+            block2_1_conv1)
+        block2_up = UpSampling2D(size=(2, 2), name="block2_up")(block2_1_conv2)
 
-        up9 = Conv2D(64, 2, activation="relu", padding='same', kernel_initializer='he_normal')(
-            UpSampling2D(size=(2, 2))(conv8))
-        if 2 in params["batch_normalization_layers"]:
-            up9 = BatchNormalization()(up9)
-        if 2 in params["dropout_layers"]:
-            up9 = Dropout(params["dropout"])(up9)
-        if params["pooling"]:
-            merge9 = concatenate([conv1_1, up9], axis=3)
-        else:
-            merge9 = concatenate([conv1, up9], axis=3)
-        conv9 = Conv2D(64, 3, activation="relu", padding='same', kernel_initializer='he_normal')(merge9)
-        conv9 = Conv2D(64, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv9)
-        conv9 = Conv2D(2, 3, activation="relu", padding='same', kernel_initializer='he_normal')(conv9)
-        if 1 in params["batch_normalization_layers"]:
-            conv9 = BatchNormalization()(conv9)
-        if 1 in params["dropout_layers"]:
-            conv9 = Dropout(params["dropout"])(conv9)
-        conv10 = Conv2D(1, 1, activation='sigmoid')(conv9)
+        block1_merge = Concatenate(axis=-1, name="block1_merge")([vgg19.get_layer("block1_conv2").output, block2_up])
+        block1_1_conv1 = Conv2D(filters=64, kernel_size=3, padding='same', activation='relu', name="block1_1_conv1")(
+            block1_merge)
+        block1_1_conv2 = Conv2D(filters=64, kernel_size=3, padding='same', activation='relu', name="block1_1_conv2")(
+            block1_1_conv1)
+        block1_1_conv3 = Conv2D(filters=2, kernel_size=3, padding='same', activation='relu', name="block1_1_conv3")(
+            block1_1_conv2)
+        block1_1_conv4 = Conv2D(filters=1, kernel_size=3, padding='same', activation='relu', name="block1_1_conv4")(
+            block1_1_conv3)
 
-        model = Model(inputs=inputs, outputs=conv10, name="u-net")
+        decoder = Model([vgg19.input, d_i], block1_1_conv4, name="decoder")
+
+        decoder_output = decoder([vgg19.input, encoder(encoder.input)])
+        model = Model(encoder.input, decoder_output, name=vgg19.name)
+
+        try:
+            # Model name should match with the name of a model from
+            # https://www.tensorflow.org/api_docs/python/tf/keras/applications/
+            # This assumes you used a model with RGB inputs as the first part of your model,
+            # therefore your input data should be preprocessed with the corresponding
+            # 'preprocess_input' function
+            m = importlib.import_module('tensorflow.keras.applications.%s' % model.name)
+            rgb_preprocessor = getattr(m, "preprocess_input")
+        except ModuleNotFoundError:
+            rgb_preprocessor = None
 
         my_loss = custom_losses.bce_dsc_loss(params["alpha"])
 
@@ -183,15 +129,17 @@ def main(args):
                       , experimental_run_tf_function=False
                       )
 
-        es = EarlyStoppingAtMinValLoss(test_paths, file_path=None, patience=20)
-        history = model.fit(x=data.train_image_generator(training_paths, input_size, 4, resize=False),
+        es = EarlyStoppingAtMinValLoss(test_paths, file_path=None, patience=20, rgb_preprocessor=rgb_preprocessor)
+        history = model.fit(x=data.train_image_generator(training_paths, input_size, 4, resize=False,
+                                                         rgb_preprocessor=rgb_preprocessor),
                             epochs=args.epochs,
                             verbose=0,
                             callbacks=[es],
                             steps_per_epoch=n_train_samples // 4)
 
-        metrics = model.evaluate(x=data.test_image_generator(test_paths, input_size=None, batch_size=1),
-                                 steps=test_paths.shape[1], verbose=0)
+        metrics = model.evaluate(
+            x=data.test_image_generator(test_paths, input_size=None, batch_size=1, rgb_preprocessor=rgb_preprocessor),
+            steps=test_paths.shape[1], verbose=0)
 
         for idx, metric in enumerate(model.metrics_names):
             if metric == "dice_coef":
@@ -211,8 +159,8 @@ def main(args):
             with open("best_dsc_model.json", "w") as json_file:
                 json_file.write(model_json)
             model.save_weights("best_dsc_weights.hdf5")
-            data.save_results_on_paths(model, training_paths, "results_training")
-            data.save_results_on_paths(model, test_paths, "results_test")
+            data.save_results_on_paths(model, training_paths, "results_training", rgb_preprocessor=rgb_preprocessor)
+            data.save_results_on_paths(model, test_paths, "results_test", rgb_preprocessor=rgb_preprocessor)
 
         plt.clf()
         for key in history.history.keys():
@@ -244,7 +192,7 @@ def main(args):
         args.fmin_max_evals = len(trials.trials) + args.fmin_max_evals
     except:  # create a new trials object and start searching
         trials = Trials()
-        
+
     best = fmin(f_nn, space, algo=tpe.suggest, max_evals=args.fmin_max_evals, trials=trials)
     print('best: ')
     print(space_eval(space, best))

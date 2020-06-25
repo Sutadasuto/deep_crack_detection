@@ -14,7 +14,7 @@ class EarlyStoppingAtMinValLoss(Callback):
         number of no improvement, training stops.
     """
 
-    def __init__(self, paths, file_path="best_val_loss.hdf5", patience=0):
+    def __init__(self, paths, file_path="best_val_loss.hdf5", patience=0, rgb_preprocessor=None):
         super(EarlyStoppingAtMinValLoss, self).__init__()
 
         self.patience = patience
@@ -24,6 +24,7 @@ class EarlyStoppingAtMinValLoss(Callback):
         self.evaluate_steps = paths.shape[1]
         self.paths = paths
         self.file_path = file_path
+        self.rgb_preprocessor = rgb_preprocessor
 
     def on_train_begin(self, logs=None):
         # The number of epoch it has waited when loss is no longer minimum.
@@ -35,7 +36,8 @@ class EarlyStoppingAtMinValLoss(Callback):
         self.input_shape = tuple(self.model.input.shape[1:-1])
         if self.input_shape == (None, None):
             self.input_shape = None
-        self.image_generator = test_image_generator(self.paths, self.input_shape, 1)
+        self.image_generator = test_image_generator(self.paths, self.input_shape, batch_size=1,
+                                                    rgb_preprocessor=self.rgb_preprocessor)
 
     def on_epoch_end(self, epoch, logs=None):
         metrics = self.model.evaluate(x=self.image_generator, steps=self.evaluate_steps, verbose=0)

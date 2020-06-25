@@ -1,4 +1,8 @@
+import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
+
 import argparse
+import importlib
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -20,6 +24,17 @@ models_dict = get_models_dict()
 def main(args):
     input_size = (None, None)
     model = models_dict[args.model]((input_size[0], input_size[1], 1))
+    try:
+        # Model name should match with the name of a model from
+        # https://www.tensorflow.org/api_docs/python/tf/keras/applications/
+        # This assumes you used a model with RGB inputs as the first part of your model,
+        # therefore your input data should be preprocessed with the corresponding
+        # 'preprocess_input' function
+        m = importlib.import_module('tensorflow.keras.applications.%s' % model.name)
+        rgb_preprocessor = getattr(m, "preprocess_input")
+    except ModuleNotFoundError:
+        rgb_preprocessor = None
+
     input_size = args.training_crop_size
 
     if args.pretrained_weights:
@@ -39,10 +54,13 @@ def main(args):
     test_paths = paths[:, n_training_images:]
 
     n_train_samples = next(data.train_image_generator(training_paths, input_size, args.batch_size, resize=False,
-                                                      count_samples_mode=True))
-    es = EarlyStoppingAtMinValLoss(test_paths, file_path='%s_best.hdf5' % args.model, patience=20)
+                                                      count_samples_mode=True, rgb_preprocessor=None))
+    es = EarlyStoppingAtMinValLoss(test_paths, file_path='%s_best.hdf5' % args.model, patience=20,
+                                   rgb_preprocessor=rgb_preprocessor)
 
-    history = model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size), epochs=args.epochs,
+    history = model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size,
+                                                     rgb_preprocessor=rgb_preprocessor),
+                        epochs=args.epochs,
                         verbose=1, callbacks=[es],
                         steps_per_epoch=n_train_samples // args.batch_size)
     model.save_weights("%s.hdf5" % args.model)
@@ -52,9 +70,10 @@ def main(args):
         evaluation_input_shape = None
 
     # Save results using the last epoch's weights
-    data.save_results_on_paths(model, training_paths, "results_training")
-    data.save_results_on_paths(model, test_paths, "results_test")
-    metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, 1),
+    data.save_results_on_paths(model, training_paths, "results_training", rgb_preprocessor)
+    data.save_results_on_paths(model, test_paths, "results_test", rgb_preprocessor)
+    metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
+                                                         rgb_preprocessor=rgb_preprocessor),
                              steps=test_paths.shape[1])
     result_string = "Dataset: %s\nModel: %s\n" % ("/".join(args.dataset_names), args.model)
     for idx, metric in enumerate(model.metrics_names):
@@ -66,9 +85,10 @@ def main(args):
 
     # Save results using the min val loss epoch's weights
     model.load_weights('%s_best.hdf5' % args.model)
-    data.save_results_on_paths(model, training_paths, "results_training_min_val_loss")
-    data.save_results_on_paths(model, test_paths, "results_test_min_val_loss")
-    metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, 1),
+    data.save_results_on_paths(model, training_paths, "results_training_min_val_loss", rgb_preprocessor)
+    data.save_results_on_paths(model, test_paths, "results_test_min_val_loss", rgb_preprocessor)
+    metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
+                                                         rgb_preprocessor=rgb_preprocessor),
                              steps=test_paths.shape[1])
     result_string = "Dataset: %s\nModel: %s\n" % ("/".join(args.dataset_names), args.model)
     for idx, metric in enumerate(model.metrics_names):
@@ -88,7 +108,6 @@ def main(args):
     plt.legend(history.history.keys(), loc='upper left')
     plt.savefig("training_losses.png")
     # plt.show()
-
 
 
 def parse_args(args=None):
@@ -120,4 +139,3 @@ def parse_args(args=None):
 if __name__ == "__main__":
     args = parse_args()
     main(args)
-

@@ -1,54 +1,62 @@
 from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
-from tensorflow.keras.optimizers import *
+from tensorflow.keras.applications import VGG19
+
 
 # from multiscale_unet import *
 
 
-def unet(input_size):
-    inputs = Input(input_size)
-    conv1 = Conv2D(64, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(inputs)
-    conv1 = Conv2D(64, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv1)
-    pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
-    conv2 = Conv2D(128, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool1)
-    conv2 = Conv2D(128, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv2)
-    pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-    conv3 = Conv2D(256, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool2)
-    conv3 = Conv2D(256, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv3)
-    pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
-    conv4 = Conv2D(512, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool3)
-    conv4 = Conv2D(512, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv4)
-    drop4 = Dropout(0.5)(conv4)
-    pool4 = MaxPooling2D(pool_size=(2, 2))(drop4)
+def uvgg19(input_size):
+    if input_size[-1] == 1:
+        input_size = (input_size[0], input_size[1], 3)
+    vgg19 = VGG19(include_top=False, weights='imagenet', input_tensor=None, input_shape=input_size, pooling=None)
+    encoder = Model(vgg19.input, vgg19.get_layer("block5_conv4").output, name="encoder")
 
-    conv5 = Conv2D(1024, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool4)
-    conv5 = Conv2D(1024, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv5)
-    drop5 = Dropout(0.5)(conv5)
+    d_i = Input(shape=(encoder.output.shape[1:]), name='decoder_input')
+    block5_up = UpSampling2D(size=(2, 2), name="block5_up")(d_i)
 
-    up6 = Conv2D(512, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(UpSampling2D(size = (2,2))(drop5))
-    merge6 = concatenate([drop4,up6], axis = 3)
-    conv6 = Conv2D(512, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge6)
-    conv6 = Conv2D(512, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv6)
+    block4_merge = Concatenate(axis=-1, name="block4_merge")([vgg19.get_layer("block4_conv4").output, block5_up])
+    block4_1_conv1 = Conv2D(filters=512, kernel_size=3, padding='same', activation='relu', name="block4_1_conv1")(
+        block4_merge)
+    block4_1_conv2 = Conv2D(filters=512, kernel_size=3, padding='same', activation='relu', name="block4_1_conv2")(
+        block4_1_conv1)
+    block4_1_conv3 = Conv2D(filters=512, kernel_size=3, padding='same', activation='relu', name="block4_1_conv3")(
+        block4_1_conv2)
+    block4_1_conv4 = Conv2D(filters=512, kernel_size=3, padding='same', activation='relu', name="block4_1_conv4")(
+        block4_1_conv3)
+    block4_up = UpSampling2D(size=(2, 2), name="block4_up")(block4_1_conv4)
 
-    up7 = Conv2D(256, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(UpSampling2D(size = (2,2))(conv6))
-    merge7 = concatenate([conv3,up7], axis = 3)
-    conv7 = Conv2D(256, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge7)
-    conv7 = Conv2D(256, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv7)
+    block3_merge = Concatenate(axis=-1, name="block3_merge")([vgg19.get_layer("block3_conv4").output, block4_up])
+    block3_1_conv1 = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu', name="block3_1_conv1")(
+        block3_merge)
+    block3_1_conv2 = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu', name="block3_1_conv2")(
+        block3_1_conv1)
+    block3_1_conv3 = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu', name="block3_1_conv3")(
+        block3_1_conv2)
+    block3_1_conv4 = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu', name="block3_1_conv4")(
+        block3_1_conv3)
+    block3_up = UpSampling2D(size=(2, 2), name="block3_up")(block3_1_conv4)
 
-    up8 = Conv2D(128, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(UpSampling2D(size = (2,2))(conv7))
-    merge8 = concatenate([conv2,up8], axis = 3)
-    conv8 = Conv2D(128, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge8)
-    conv8 = Conv2D(128, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv8)
+    block2_merge = Concatenate(axis=-1, name="block2_merge")([vgg19.get_layer("block2_conv2").output, block3_up])
+    block2_1_conv1 = Conv2D(filters=128, kernel_size=3, padding='same', activation='relu', name="block2_1_conv1")(
+        block2_merge)
+    block2_1_conv2 = Conv2D(filters=128, kernel_size=3, padding='same', activation='relu', name="block2_1_conv2")(
+        block2_1_conv1)
+    block2_up = UpSampling2D(size=(2, 2), name="block2_up")(block2_1_conv2)
 
-    up9 = Conv2D(64, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(UpSampling2D(size = (2,2))(conv8))
-    merge9 = concatenate([conv1,up9], axis = 3)
-    conv9 = Conv2D(64, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge9)
-    conv9 = Conv2D(64, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv9)
-    conv9 = Conv2D(2, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv9)
-    conv10 = Conv2D(1, 1, activation = 'sigmoid')(conv9)
+    block1_merge = Concatenate(axis=-1, name="block1_merge")([vgg19.get_layer("block1_conv2").output, block2_up])
+    block1_1_conv1 = Conv2D(filters=64, kernel_size=3, padding='same', activation='relu', name="block1_1_conv1")(
+        block1_merge)
+    block1_1_conv2 = Conv2D(filters=64, kernel_size=3, padding='same', activation='relu', name="block1_1_conv2")(
+        block1_1_conv1)
+    block1_1_conv3 = Conv2D(filters=2, kernel_size=3, padding='same', activation='relu', name="block1_1_conv3")(
+        block1_1_conv2)
+    block1_1_conv4 = Conv2D(filters=1, kernel_size=3, padding='same', activation='relu', name="block1_1_conv4")(
+        block1_1_conv3)
 
-    model = Model(inputs=inputs, outputs=conv10)
+    decoder = Model([vgg19.input, d_i], block1_1_conv4, name="decoder")
+
+    decoder_output = decoder([vgg19.input, encoder(encoder.input)])
+    model = Model(encoder.input, decoder_output, name=vgg19.name)
 
     return model
-
-

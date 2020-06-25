@@ -320,13 +320,16 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
                           rgb_preprocessor=None):
     _, n_images = paths.shape
     rgb = True if rgb_preprocessor else False
+
+    # All available transformations for data augmentation. 'None' implies no change
     noises = [None, "gauss", "s&p", "speckle"]
     rotations = [None, 90.0, 180.0, 270.0]
     flips = [None, "h", "v"]
 
-    noises = ["gauss", "s&p"]
-    rotations = [180.0]
-    flips = ["h"]
+    # This means no noise, no rotation and no flip (i.e. only the original image is provided)
+    noises = [None]
+    rotations = [None]
+    flips = [None]
 
     n_transformations = len(noises) * len(rotations) * len(flips)
 
@@ -359,7 +362,7 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
                 or_gt = get_gt_image(gt_path, input_size=None)
 
                 ims = np.zeros((n_transformations, or_im.shape[0], or_im.shape[1], or_im.shape[2]), dtype=or_im.dtype)
-                gts = np.zeros((n_transformations, or_gt.shape[0], or_gt.shape[1], or_im.shape[2]), dtype=or_gt.dtype)
+                gts = np.zeros((n_transformations, or_gt.shape[0], or_gt.shape[1], or_gt.shape[2]), dtype=or_gt.dtype)
                 channel = 0
 
                 for noise in noises:
@@ -427,8 +430,8 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
 
 
 # Test model on images
-def save_results_on_paths(model, paths, save_to="results"):
-    compound_images = test_images_from_paths(model, paths)
+def save_results_on_paths(model, paths, save_to="results", rgb_preprocessor=None):
+    compound_images = test_images_from_paths(model, paths, rgb_preprocessor)
     n_im = len(compound_images[0])
 
     if not os.path.exists(save_to):
@@ -440,11 +443,16 @@ def save_results_on_paths(model, paths, save_to="results"):
                                          axis=1))
 
 
-def test_image_from_path(model, input_path, gt_path):
+def test_image_from_path(model, input_path, gt_path, rgb_preprocessor=None):
     input_shape = tuple(model.input.shape[1:-1])
+    rgb = True if rgb_preprocessor else False
     if input_shape == (None, None):
         input_shape = None
-    prediction = model.predict(get_image(input_path, input_shape, normalize=True)[None, ...])[0, :, :, 0]
+    if rgb:
+        prediction = model.predict(rgb_preprocessor(get_image(input_path, input_shape, normalize=True, rgb=rgb))[None, ...])[0, :, :, 0]
+    else:
+        prediction = model.predict(get_image(input_path, input_shape, normalize=True)[None, ...])[0, :, :, 0]
+
     if gt_path:
         gt = get_gt_image(gt_path, input_shape)[..., 0]
     input_image = get_image(input_path, None, normalize=False)[..., 0]
@@ -453,12 +461,17 @@ def test_image_from_path(model, input_path, gt_path):
     return [input_image, None, prediction]
 
 
-def test_images_from_paths(model, paths):
+def test_images_from_paths(model, paths, rgb_preprocessor=None):
     input_shape = tuple(model.input.shape[1:-1])
+    rgb = True if rgb_preprocessor else False
     if input_shape == (None, None):
         input_shape = None
-    predictions = [model.predict(get_image(im_path, input_shape, normalize=True)[None, ...])[0, :, :, 0] for im_path in
-                   paths[0, :]]
+    if rgb:
+        predictions = [model.predict(rgb_preprocessor(get_image(im_path, input_shape, normalize=True, rgb=rgb))[None, ...])[0, :, :, 0] for im_path in
+                       paths[0, :]]
+    else:
+        predictions = [model.predict(get_image(im_path, input_shape, normalize=True)[None, ...])[0, :, :, 0] for im_path in
+                       paths[0, :]]
     gts = [get_gt_image(gt_path, input_shape)[..., 0] for gt_path in paths[1, :]]
     ims = [get_image(im_path, input_shape, normalize=False)[..., 0] for im_path in paths[0, :]]
     return [ims, gts, predictions]
