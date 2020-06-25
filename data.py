@@ -379,8 +379,14 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
                                 ims[channel, ...] = flipped
                                 gts[channel, ...] = flipped_gt
                             else:
-                                ims[channel, ...] = cv2.resize(flipped, (or_im.shape[1], or_im.shape[0]))
-                                gts[channel, ...] = cv2.resize(flipped_gt, (or_im.shape[1], or_im.shape[0]))
+                                flipped = cv2.resize(flipped, (or_im.shape[1], or_im.shape[0]))
+                                if len(flipped.shape) == 2:
+                                    flipped = flipped[..., None]
+                                ims[channel, ...] = flipped
+                                flipped_gt = cv2.resize(flipped_gt, (or_gt.shape[1], or_gt.shape[0]))
+                                if len(flipped_gt.shape) == 2:
+                                    flipped_gt = flipped_gt[..., None]
+                                gts[channel, ...] = flipped_gt
                             channel += 1
 
             im = ims[j, ...]
