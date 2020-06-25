@@ -72,20 +72,82 @@ def paths_generator_cfd(dataset_path):
 def manual_padding(image, n_pooling_layers):
     # Assuming N pooling layers of size 2x2 with pool size stride (like in U-net and multiscale U-net), we add the
     # necessary number of rows and columns to have an image fully compatible with up sampling layers.
-    divisor = 2**n_pooling_layers
-    h, w = image.shape
-    new_h = divisor * ceil(h/divisor)
-    new_w = divisor * ceil(w/divisor)
+    divisor = 2 ** n_pooling_layers
+    try:
+        h, w = image.shape
+    except ValueError:
+        h, w, c = image.shape
+    new_h = divisor * ceil(h / divisor)
+    new_w = divisor * ceil(w / divisor)
     if new_h == h and new_w == w:
         return image
 
     if new_h != h:
-        new_rows = np.flip(image[h-new_h:, :], axis=0)
+        new_rows = np.flip(image[h - new_h:, :, ...], axis=0)
         image = np.concatenate([image, new_rows], axis=0)
     if new_w != w:
-        new_cols = np.flip(image[:, w-new_w:], axis=1)
+        new_cols = np.flip(image[:, w - new_w:, ...], axis=1)
         image = np.concatenate([image, new_cols], axis=1)
     return image
+
+
+def flipped_version(image, flip_typ):
+    if flip_typ is None:
+        return image
+    elif flip_typ == "h":
+        return np.fliplr(image)
+    elif flip_typ == "v":
+        return np.flipud(image)
+
+
+def noisy_version(image, noise_typ):
+    if noise_typ == "gauss":
+        row, col, ch = image.shape
+        mean = 0
+        var = 0.1 * image.max()
+        sigma = var ** 0.5
+        gauss = np.random.normal(mean, sigma, (row, col, ch))
+        gauss = gauss.reshape(row, col, ch)
+        noisy = image + gauss
+        return noisy
+
+    elif noise_typ == "s&p":
+        s_vs_p = 0.5
+        amount = 0.004
+        out = np.copy(image)
+        # Salt mode
+        num_salt = int(np.ceil(amount * image.size * s_vs_p))
+        coords = [np.random.randint(0, i - 1, num_salt)
+                  for i in image.shape[:-1]]
+        for channel in range(image.shape[-1]):
+            channel_coords = tuple(coords + [np.array([channel for i in range(num_salt)])])
+            out[channel_coords] = 1
+
+        # Pepper mode
+        num_pepper = int(np.ceil(amount * image.size * (1. - s_vs_p)))
+        coords = [np.random.randint(0, i - 1, num_pepper)
+                  for i in image.shape[:-1]]
+        for channel in range(image.shape[-1]):
+            channel_coords = tuple(coords + [np.array([channel for i in range(num_pepper)])])
+            out[channel_coords] = -1
+        return out
+
+    elif noise_typ == "speckle":
+        row, col, ch = image.shape
+        gauss = np.random.randn(row, col, ch) / 4.0
+        noisy = image + image * gauss
+        return noisy
+
+    elif noise_typ is None:
+        return image
+
+
+def rotated_version(image, angle):
+    if angle is None:
+        return image
+
+    k = int(angle / 90)
+    return np.rot90(image, k)
 
 
 def get_corners(im, input_size):
@@ -119,18 +181,24 @@ def crop_generator(im, gt, input_size):
 
 
 # Image generators
-def get_image(im_path, input_size, normalize=True):
-    im = cv2.imread(im_path, cv2.IMREAD_GRAYSCALE)
-    if input_size:
-        im = cv2.resize(im, input_size)
-    if normalize:
-        im = ((im - im.min()) / (im.max() - im.min()) - 0.5) / 0.5
-        im *= -1  # Negative so cracks are brighter
+def get_image(im_path, input_size, normalize=True, rgb=False):
+    if rgb:
+        im = cv2.cvtColor(cv2.imread(im_path), cv2.COLOR_BGR2RGB)
     else:
-        im = im / 255.0
+        im = cv2.imread(im_path, cv2.IMREAD_GRAYSCALE)
+    if input_size:
+        im = cv2.resize(im, (input_size[1], input_size[0]))
+
+    if not rgb:
+        if normalize:
+            im = ((im - im.min()) / (im.max() - im.min()) - 0.5) / 0.5
+            im *= -1  # Negative so cracks are brighter
+        else:
+            im = im / 255.0
 
     im = manual_padding(im, n_pooling_layers=4)
-    im = im[..., None]  # Channels last
+    if len(im.shape) == 2:
+        im = im[..., None]  # Channels last
     return im
 
 
@@ -138,7 +206,7 @@ def get_gt_image(gt_path, input_size):
     gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
     binary = True if len(np.unique(gt)) == 2 else False
     if input_size:
-        gt = cv2.resize(gt, input_size)
+        gt = cv2.resize(gt, (input_size[1], input_size[0]))
     if binary:
         ret, gt = cv2.threshold(gt, 127, 255, cv2.THRESH_BINARY)
     gt = (gt / 255)
@@ -153,8 +221,9 @@ def get_gt_image(gt_path, input_size):
     return gt[..., None]  # Channels last
 
 
-def test_image_generator(paths, input_size, batch_size=1):
+def test_image_generator(paths, input_size, batch_size=1, rgb_preprocessor=None):
     _, n_images = paths.shape
+    rgb = True if rgb_preprocessor else False
     i = 0
     while True:
         batch_x = []
@@ -166,9 +235,12 @@ def test_image_generator(paths, input_size, batch_size=1):
             im_path = paths[0][i]
             gt_path = paths[1][i]
 
-            im = get_image(im_path, input_size)
+            im = get_image(im_path, input_size, rgb=rgb)
             gt = get_gt_image(gt_path, input_size)
-            batch_x.append(im)
+            if rgb:
+                batch_x.append(rgb_preprocessor(im))
+            else:
+                batch_x.append(im)
             batch_y.append(gt)
             b += 1
             i += 1
@@ -176,8 +248,10 @@ def test_image_generator(paths, input_size, batch_size=1):
         yield np.array(batch_x), np.array(batch_y)
 
 
-def train_image_generator(paths, input_size, batch_size=1, resize=False, count_samples_mode=False):
+def train_image_generator_legacy(paths, input_size, batch_size=1, resize=False, count_samples_mode=False,
+                                 rgb_preprocessor=None):
     _, n_images = paths.shape
+    rgb = True if rgb_preprocessor else False
     i = 0
     n_samples = 0
     prev_im = False
@@ -196,9 +270,12 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
             gt_path = paths[1][i]
 
             if resize:
-                im = get_image(im_path, input_size)
+                im = get_image(im_path, input_size, rgb=rgb)
                 gt = get_gt_image(gt_path, input_size)
-                batch_x.append(im)
+                if rgb:
+                    batch_x.append(rgb_preprocessor(im))
+                else:
+                    batch_x.append(im)
                 batch_y.append(gt)
                 n_samples += 1
                 b += 1
@@ -206,13 +283,16 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
             else:
                 if input_size:
                     if not prev_im:
-                        im = get_image(im_path, None)
-                        gt = get_gt_image(gt_path, None)
+                        im = get_image(im_path, input_size=None, rgb=rgb)
+                        gt = get_gt_image(gt_path, input_size=None)
                         win_gen = crop_generator(im, gt, input_size)
                         prev_im = True
                     try:
                         [im, gt] = next(win_gen)
-                        batch_x.append(im)
+                        if rgb:
+                            batch_x.append(rgb_preprocessor(im))
+                        else:
+                            batch_x.append(im)
                         batch_y.append(gt)
                         n_samples += 1
                         b += 1
@@ -221,13 +301,126 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
                         i += 1
 
                 else:
-                    im = get_image(im_path, None)
-                    gt = get_gt_image(gt_path, None)
-                    batch_x.append(im)
+                    im = get_image(im_path, input_size=None)
+                    gt = get_gt_image(gt_path, input_size=None)
+                    if rgb:
+                        batch_x.append(rgb_preprocessor(im))
+                    else:
+                        batch_x.append(im)
                     batch_y.append(gt)
                     n_samples += 1
                     b += 1
                     i += 1
+
+        if not count_samples_mode:
+            yield np.array(batch_x), np.array(batch_y)
+
+
+def train_image_generator(paths, input_size, batch_size=1, resize=False, count_samples_mode=False,
+                          rgb_preprocessor=None):
+    _, n_images = paths.shape
+    rgb = True if rgb_preprocessor else False
+    noises = [None, "gauss", "s&p", "speckle"]
+    rotations = [None, 90.0, 180.0, 270.0]
+    flips = [None, "h", "v"]
+
+    noises = ["gauss", "s&p"]
+    rotations = [180.0]
+    flips = ["h"]
+
+    n_transformations = len(noises) * len(rotations) * len(flips)
+
+    i = -1
+    j = n_transformations
+    prev_im = False
+
+    n_samples = 0
+
+    while True:
+        batch_x = []
+        batch_y = []
+        b = 0
+        while b < batch_size:
+            if j == n_transformations:
+                j = 0
+                i += 1
+
+                if i == n_images:
+                    if count_samples_mode:
+                        yield n_samples
+                    i = 0
+                    n_samples = 0
+                    np.random.shuffle(paths.transpose())
+
+                im_path = paths[0][i]
+                gt_path = paths[1][i]
+
+                or_im = get_image(im_path, input_size=None, rgb=rgb)
+                or_gt = get_gt_image(gt_path, input_size=None)
+
+                ims = np.zeros((n_transformations, or_im.shape[0], or_im.shape[1], or_im.shape[2]), dtype=or_im.dtype)
+                gts = np.zeros((n_transformations, or_gt.shape[0], or_gt.shape[1], or_im.shape[2]), dtype=or_gt.dtype)
+                channel = 0
+
+                for noise in noises:
+                    noisy = noisy_version(or_im, noise)
+
+                    for rotation in rotations:
+                        rotated = rotated_version(noisy, rotation)
+                        rotated_gt = rotated_version(or_gt, rotation)
+
+                        for flip in flips:
+                            flipped = flipped_version(rotated, flip)
+                            flipped_gt = flipped_version(rotated_gt, flip)
+                            if ims[channel, :, :, :].shape == flipped.shape:
+                                ims[channel, ...] = flipped
+                                gts[channel, ...] = flipped_gt
+                            else:
+                                ims[channel, ...] = cv2.resize(flipped, (or_im.shape[1], or_im.shape[0]))
+                                gts[channel, ...] = cv2.resize(flipped_gt, (or_im.shape[1], or_im.shape[0]))
+                            channel += 1
+
+            im = ims[j, ...]
+            gt = gts[j, ...]
+
+            if resize:
+                im = cv2.resize(im, (input_size[1], input_size[0]))
+                gt = cv2.resize(gt, (input_size[1], input_size[0]))
+                if rgb:
+                    batch_x.append(rgb_preprocessor(im))
+                else:
+                    batch_x.append(im)
+                batch_y.append(gt)
+                n_samples += 1
+                b += 1
+                j += 1
+            else:
+                if input_size:
+                    if not prev_im:
+                        win_gen = crop_generator(im, gt, input_size)
+                        prev_im = True
+                    try:
+                        [im, gt] = next(win_gen)
+                        if rgb:
+                            batch_x.append(rgb_preprocessor(im))
+                        else:
+                            batch_x.append(im)
+                        batch_y.append(gt)
+                        n_samples += 1
+                        b += 1
+                    except StopIteration:
+                        prev_im = False
+                        j += 1
+
+                else:
+                    if rgb:
+                        batch_x.append(rgb_preprocessor(im))
+                    else:
+                        batch_x.append(im)
+                    batch_y.append(gt)
+                    n_samples += 1
+                    b += 1
+                    j += 1
 
         if not count_samples_mode:
             yield np.array(batch_x), np.array(batch_y)

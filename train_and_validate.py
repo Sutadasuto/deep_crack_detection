@@ -43,7 +43,7 @@ def main(args):
     es = EarlyStoppingAtMinValLoss(test_paths, file_path='%s_best.hdf5' % args.model, patience=20)
 
     history = model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size), epochs=args.epochs,
-                        verbose=2, callbacks=[es],
+                        verbose=1, callbacks=[es],
                         steps_per_epoch=n_train_samples // args.batch_size)
     model.save_weights("%s.hdf5" % args.model)
 
