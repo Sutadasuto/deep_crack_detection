@@ -62,7 +62,10 @@ def main(args):
         vgg19 = VGG19(include_top=False, weights='imagenet', input_tensor=None, input_shape=(None, None, 3), pooling=None)
         encoder = Model(vgg19.input, vgg19.get_layer("block5_conv4").output, name="encoder")
 
-        encoder.trainable = params["train_vgg"]
+        # encoder.trainable = params["train_vgg"]
+        for layer in encoder.layers:
+            if layer.name.startswith("block5_conv"):
+                layer.trainable = params["train_vgg"]
 
         d_i = Input(shape=(encoder.output.shape[1:]), name='decoder_input')
         block5_up = UpSampling2D(size=(2, 2), name="block5_up")(d_i)
