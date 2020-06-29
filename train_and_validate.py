@@ -8,22 +8,34 @@ import numpy as np
 import os
 
 from distutils.util import strtobool
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.optimizers import Adam
 import tensorflow.keras.metrics as keras_metrics
+from tensorflow.keras.models import model_from_json
+from json.decoder import JSONDecodeError
 
-import custom_losses
+from callbacks_and_losses import custom_losses
 import data
 
-from custom_calllbacks import EarlyStoppingAtMinValLoss
-from available_models import get_models_dict
+from callbacks_and_losses.custom_calllbacks import EarlyStoppingAtMinValLoss
+from models.available_models import get_models_dict
 
 models_dict = get_models_dict()
 
 
 def main(args):
     input_size = (None, None)
-    model = models_dict[args.model]((input_size[0], input_size[1], 1))
+    # Load model from JSON file if file path was provided...
+    if os.path.exists(args.model):
+        try:
+            with open(args.model, 'r') as f:
+                json = f.read()
+            model = model_from_json(json)
+        except JSONDecodeError:
+            raise ValueError("JSON decode error found. File path %s exists but could not be decoded; verify if JSON encoding was "
+                  "performed properly." % args.model)
+    # ...Otherwise, create model from this project by using a proper key name
+    else:
+        model = models_dict[args.model]((input_size[0], input_size[1], 1))
     try:
         # Model name should match with the name of a model from
         # https://www.tensorflow.org/api_docs/python/tf/keras/applications/
@@ -35,10 +47,15 @@ def main(args):
     except ModuleNotFoundError:
         rgb_preprocessor = None
 
+    # We don't resize images for training, but provide image patches of reduced size for memory saving
+    # An image is turned into this size patches in a chess-board-like approach
     input_size = args.training_crop_size
 
+    # For fine tuning, one can provide previous weights
     if args.pretrained_weights:
         model.load_weights(args.pretrained_weights)
+
+    # Model is compiled so it can be trained
     model.compile(optimizer=Adam(lr=args.learning_rate), loss=custom_losses.bce_dsc_loss(args.alpha),
                   metrics=[custom_losses.dice_coef, 'binary_crossentropy',
                            keras_metrics.Precision(), keras_metrics.Recall()])
@@ -46,32 +63,46 @@ def main(args):
     # model_checkpoint = ModelCheckpoint('%s_best.hdf5' % args.model, monitor='loss', verbose=1, save_best_only=True)
     # es = EarlyStopping(monitor='loss', mode='min', verbose=1, patience=20)
 
+    # Here we find to paths to all images from the selected datasets
     paths = data.create_image_paths(args.dataset_names, args.dataset_paths)
+    # Data is split into 80% for training data and 20% for validation data. A custom seed is used for reproducibility.
     n_training_images = int(0.8 * paths.shape[1])
     np.random.seed(0)
     np.random.shuffle(paths.transpose())
     training_paths = paths[:, :n_training_images]
     test_paths = paths[:, n_training_images:]
 
+    # As input images can be of different sizes, here we calculate the total number of patches used for training.
     n_train_samples = next(data.train_image_generator(training_paths, input_size, args.batch_size, resize=False,
-                                                      count_samples_mode=True, rgb_preprocessor=None))
+                                                      count_samples_mode=True, rgb_preprocessor=None,
+                                                      data_augmentation=args.use_da))
+
+    # A customized early stopping callback. At each epoch end, the callback will test the current weights on the
+    # validation set (using whole iamges instead of patches) and stop the training if the minimum validation loss hasn't
+    # imporved over the last 'patience' epochs.
     es = EarlyStoppingAtMinValLoss(test_paths, file_path='%s_best.hdf5' % args.model, patience=20,
                                    rgb_preprocessor=rgb_preprocessor)
 
+    # Training begins. Note that the train image generator can use or not data augmentation through the parsed argument
+    # 'use_da'
     history = model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size,
-                                                     rgb_preprocessor=rgb_preprocessor),
+                                                     rgb_preprocessor=rgb_preprocessor, data_augmentation=args.use_da),
                         epochs=args.epochs,
                         verbose=1, callbacks=[es],
                         steps_per_epoch=n_train_samples // args.batch_size)
-    model.save_weights("%s.hdf5" % args.model)
 
+    # Save the models of the last training epoch
+    if args.epochs > 0:
+        model.save_weights("%s.hdf5" % args.model)
+
+    # Verify if the trained model expects a particular input size
     evaluation_input_shape = tuple(model.input.shape[1:-1])
     if evaluation_input_shape == (None, None):
         evaluation_input_shape = None
 
     # Save results using the last epoch's weights
-    data.save_results_on_paths(model, training_paths, "results_training", rgb_preprocessor)
-    data.save_results_on_paths(model, test_paths, "results_test", rgb_preprocessor)
+    data.save_results_on_paths(model, training_paths, "results_training")
+    data.save_results_on_paths(model, test_paths, "results_test")
     metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
                                                          rgb_preprocessor=rgb_preprocessor),
                              steps=test_paths.shape[1])
@@ -85,8 +116,8 @@ def main(args):
 
     # Save results using the min val loss epoch's weights
     model.load_weights('%s_best.hdf5' % args.model)
-    data.save_results_on_paths(model, training_paths, "results_training_min_val_loss", rgb_preprocessor)
-    data.save_results_on_paths(model, test_paths, "results_test_min_val_loss", rgb_preprocessor)
+    data.save_results_on_paths(model, training_paths, "results_training_min_val_loss")
+    data.save_results_on_paths(model, test_paths, "results_test_min_val_loss")
     metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
                                                          rgb_preprocessor=rgb_preprocessor),
                              steps=test_paths.shape[1])
@@ -126,6 +157,9 @@ def parse_args(args=None):
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training.")
     parser.add_argument("--pretrained_weights", type=str, default=None,
                         help="Load previous weights from this location.")
+    parser.add_argument("--use_da", type=str, default="True", help="If 'True', training will be done using data "
+                                                                   "augmentation. If 'False', just raw images will be "
+                                                                   "used.")
 
     args_dict = parser.parse_args(args)
     for attribute in args_dict.__dict__.keys():

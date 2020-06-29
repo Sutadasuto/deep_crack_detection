@@ -10,22 +10,18 @@ import os
 import pickle
 
 from distutils.util import strtobool
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
-from tensorflow.keras.optimizers import Adam, SGD, RMSprop, Adadelta, Adagrad
+from tensorflow.keras.optimizers import Adam
 import tensorflow.keras.metrics as keras_metrics
 from tensorflow.keras.applications import VGG19
 
-import custom_losses
+from callbacks_and_losses import custom_losses
 import data
 
-from custom_calllbacks import EarlyStoppingAtMinValLoss
-from available_ae_models import get_models_dict
-
-import tensorflow.keras.backend as K
+from callbacks_and_losses.custom_calllbacks import EarlyStoppingAtMinValLoss
+from models.available_ae_models import get_models_dict
 
 from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
-from tensorflow.keras.losses import *
 
 from hyperopt import fmin, tpe, hp, STATUS_OK, Trials, space_eval
 

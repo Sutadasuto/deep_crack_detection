@@ -1,6 +1,7 @@
 __pycache*
 /.idea/
 /*.png
+/*.jpg
 /*.hdf5
 /*.json
 /results*

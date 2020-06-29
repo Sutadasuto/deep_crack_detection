@@ -1,6 +1,6 @@
-from unet import unet
-from multiscale_unet import multiscale_unet
-from uvgg19 import uvgg19
+from models.unet import unet
+from models.multiscale_unet import multiscale_unet
+from models.uvgg19 import uvgg19
 
 models_dict = {
     "unet": unet,

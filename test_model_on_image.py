@@ -4,17 +4,32 @@ import numpy as np
 import os
 
 from distutils.util import strtobool
+from tensorflow.keras.models import model_from_json
+from json.decoder import JSONDecodeError
 
 import data
 
-from available_models import get_models_dict
+from models.available_models import get_models_dict
 
 models_dict = get_models_dict()
 
 
 def main(args):
     input_size = (None, None)
-    model = models_dict[args.model]((input_size[0], input_size[1], 1))
+    # Load model from JSON file if file path was provided...
+    if os.path.exists(args.model):
+        try:
+            with open(args.model, 'r') as f:
+                json = f.read()
+            model = model_from_json(json)
+        except JSONDecodeError:
+            raise ValueError(
+                "JSON decode error found. File path %s exists but could not be decoded; verify if JSON encoding was "
+                "performed properly." % args.model)
+    # ...Otherwise, create model from this project by using a proper key name
+    else:
+        model = models_dict[args.model]((input_size[0], input_size[1], 1))
+
     model.load_weights(args.weights_path)
 
     [im, gt, pred] = data.test_image_from_path(model, args.image_path, args.gt_path)

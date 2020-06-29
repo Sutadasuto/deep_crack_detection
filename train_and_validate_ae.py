@@ -7,15 +7,14 @@ import numpy as np
 import os
 
 from distutils.util import strtobool
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.optimizers import Adam
 import tensorflow.keras.metrics as keras_metrics
 
-import custom_losses
+from callbacks_and_losses import custom_losses
 import data
 
-from custom_calllbacks import EarlyStoppingAtMinValLoss
-from available_ae_models import get_models_dict
+from callbacks_and_losses.custom_calllbacks import EarlyStoppingAtMinValLoss
+from models.available_ae_models import get_models_dict
 
 models_dict = get_models_dict()
 
@@ -44,14 +43,18 @@ def main(args):
     test_paths = paths[:, n_training_images:]
 
     n_train_samples = next(data.train_image_generator(training_paths, input_size, args.batch_size, resize=True,
-                                                      count_samples_mode=True))
+                                                      count_samples_mode=True, data_augmentation=args.use_da))
     es = EarlyStoppingAtMinValLoss(test_paths, file_path='%s_best.hdf5' % args.model, patience=20)
 
-    history = model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size), epochs=args.epochs,
+    history = model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size,
+                                                     data_augmentation=args.use_da),
+                        epochs=args.epochs,
                         verbose=1,
                         callbacks=[es],
                         steps_per_epoch=n_train_samples // args.batch_size)
-    model.save_weights("%s.hdf5" % args.model)
+
+    if args.epochs > 0:
+        model.save_weights("%s.hdf5" % args.model)
 
     evaluation_input_shape = tuple(model.input.shape[1:-1])
     if evaluation_input_shape == (None, None):
@@ -115,6 +118,9 @@ def parse_args(args=None):
                                                                                            "specific input size)")
     parser.add_argument("--self_supervised", type=str, default="True",
                         help="If 'True', the input images will be used as training target instead of GT annotations.")
+    parser.add_argument("--use_da", type=str, default="True", help="If 'True', training will be done using data "
+                                                                   "augmentation. If 'False', just raw images will be "
+                                                                   "used.")
 
     args_dict = parser.parse_args(args)
     for attribute in args_dict.__dict__.keys():

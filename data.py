@@ -1,4 +1,5 @@
 import cv2
+import importlib
 import numpy as np
 import scipy.io
 import os
@@ -317,19 +318,20 @@ def train_image_generator_legacy(paths, input_size, batch_size=1, resize=False, 
 
 
 def train_image_generator(paths, input_size, batch_size=1, resize=False, count_samples_mode=False,
-                          rgb_preprocessor=None):
+                          rgb_preprocessor=None, data_augmentation=True):
     _, n_images = paths.shape
     rgb = True if rgb_preprocessor else False
 
     # All available transformations for data augmentation. 'None' implies no change
-    noises = [None, "gauss", "s&p", "speckle"]
-    rotations = [None, 90.0, 180.0, 270.0]
-    flips = [None, "h", "v"]
-
+    if data_augmentation:
+        noises = [None, "gauss", "s&p", "speckle"]
+        rotations = [None, 90.0, 180.0, 270.0]
+        flips = [None, "h", "v"]
     # This means no noise, no rotation and no flip (i.e. only the original image is provided)
-    # noises = [None]
-    # rotations = [None]
-    # flips = [None]
+    else:
+        noises = [None]
+        rotations = [None]
+        flips = [None]
 
     n_transformations = len(noises) * len(rotations) * len(flips)
 
@@ -436,8 +438,26 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
 
 
 # Test model on images
-def save_results_on_paths(model, paths, save_to="results", rgb_preprocessor=None):
-    compound_images = test_images_from_paths(model, paths, rgb_preprocessor)
+def get_preprocessor(model):
+    """
+    :param model: A Tensorflow model
+    :return: A preprocessor corresponding to the model name
+    Model name should match with the name of a model from
+    https://www.tensorflow.org/api_docs/python/tf/keras/applications/
+    This assumes you used a model with RGB inputs as the first part of your model,
+    therefore your input data should be preprocessed with the corresponding
+    'preprocess_input' function.
+    If the model model is not part of the keras applications models, None is returned
+    """
+    try:
+        m = importlib.import_module('tensorflow.keras.applications.%s' % model.name)
+        return getattr(m, "preprocess_input")
+    except ModuleNotFoundError:
+        return None
+
+
+def save_results_on_paths(model, paths, save_to="results"):
+    compound_images = test_images_from_paths(model, paths)
     n_im = len(compound_images[0])
 
     if not os.path.exists(save_to):
@@ -449,13 +469,15 @@ def save_results_on_paths(model, paths, save_to="results", rgb_preprocessor=None
                                          axis=1))
 
 
-def test_image_from_path(model, input_path, gt_path, rgb_preprocessor=None):
+def test_image_from_path(model, input_path, gt_path):
     input_shape = tuple(model.input.shape[1:-1])
+    rgb_preprocessor = get_preprocessor(model)
     rgb = True if rgb_preprocessor else False
     if input_shape == (None, None):
         input_shape = None
     if rgb:
-        prediction = model.predict(rgb_preprocessor(get_image(input_path, input_shape, normalize=True, rgb=rgb))[None, ...])[0, :, :, 0]
+        prediction = model.predict(
+            rgb_preprocessor(get_image(input_path, input_shape, normalize=True, rgb=rgb))[None, ...])[0, :, :, 0]
     else:
         prediction = model.predict(get_image(input_path, input_shape, normalize=True)[None, ...])[0, :, :, 0]
 
@@ -467,17 +489,83 @@ def test_image_from_path(model, input_path, gt_path, rgb_preprocessor=None):
     return [input_image, None, prediction]
 
 
-def test_images_from_paths(model, paths, rgb_preprocessor=None):
+def test_images_from_paths(model, paths):
     input_shape = tuple(model.input.shape[1:-1])
+    rgb_preprocessor = get_preprocessor(model)
     rgb = True if rgb_preprocessor else False
     if input_shape == (None, None):
         input_shape = None
     if rgb:
-        predictions = [model.predict(rgb_preprocessor(get_image(im_path, input_shape, normalize=True, rgb=rgb))[None, ...])[0, :, :, 0] for im_path in
-                       paths[0, :]]
+        predictions = [
+            model.predict(rgb_preprocessor(get_image(im_path, input_shape, normalize=True, rgb=rgb))[None, ...])[0, :,
+            :, 0] for im_path in
+            paths[0, :]]
     else:
-        predictions = [model.predict(get_image(im_path, input_shape, normalize=True)[None, ...])[0, :, :, 0] for im_path in
+        predictions = [model.predict(get_image(im_path, input_shape, normalize=True)[None, ...])[0, :, :, 0] for im_path
+                       in
                        paths[0, :]]
     gts = [get_gt_image(gt_path, input_shape)[..., 0] for gt_path in paths[1, :]]
     ims = [get_image(im_path, input_shape, normalize=False)[..., 0] for im_path in paths[0, :]]
     return [ims, gts, predictions]
+
+
+# Compare GT and predictions from images obtained by save_results_on_paths()
+def highlight_cracks(or_im, mask):
+    highlight_mask = np.zeros(mask.shape, dtype=np.float)
+    highlight_mask[np.where(mask >= 128)] = 1.0
+    highlight_mask[np.where(mask < 128)] = 0.5
+    return or_im * highlight_mask
+
+
+def compare_masks(gt_mask, pred_mask):
+    new_image = np.zeros(gt_mask.shape, dtype=np.float32)
+    new_image[..., 2][np.where(pred_mask[..., 0] >= 128)] = 255
+    new_image[..., 0][np.where(gt_mask[..., 0] >= 128)] = 255
+    new_image[..., 1][np.where((new_image[..., 0] == 255) & (new_image[..., 2] == 255))] = 255
+    new_image[..., 0][np.where((new_image[..., 0] == 255) & (new_image[..., 2] == 255))] = 0
+    new_image[..., 2][np.where((new_image[..., 0] == 0) & (new_image[..., 1] == 255) & (new_image[..., 2] == 255))] = 0
+    return new_image
+
+
+def analyze_gt_pred(im, gt, pred):
+    gt_highlight_cracks = highlight_cracks(im, gt)
+    pred_highlight_cracks = highlight_cracks(im, pred)
+    comparative_mask = compare_masks(gt, pred)
+    white_line_v = 255 * np.ones((comparative_mask.shape[0], 1, 3))
+    first_row = np.concatenate(
+        (im, white_line_v, gt_highlight_cracks, white_line_v, pred_highlight_cracks, white_line_v, comparative_mask), axis=1)
+    white_line_h = 255 * np.ones((1, first_row.shape[1], 3))
+
+    gt_highlight_cracks = highlight_cracks(255-im, gt)
+    pred_highlight_cracks = highlight_cracks(255-im, pred)
+    second_row = np.concatenate(
+        (255-im, white_line_v, gt_highlight_cracks, white_line_v, pred_highlight_cracks, white_line_v, comparative_mask), axis=1)
+    return np.concatenate((first_row, white_line_h, second_row), axis=0)
+
+
+def analyse_resulting_image(image_path):
+    or_im = cv2.imread(image_path).astype(np.float)
+    h, w, c = or_im.shape
+    w = int(w / 3)
+    im = or_im[:, :w, :]
+    gt = or_im[:, w:2 * w, :]
+    pred = or_im[:, 2 * w:, :]
+    return analyze_gt_pred(im, gt, pred)
+
+
+def analyse_resulting_image_folder(folder_path, new_folder=None):
+    if not new_folder:
+        new_folder = folder_path + "_mask_comparison"
+    if not os.path.exists(new_folder):
+        os.makedirs(new_folder)
+
+    image_names = sorted([f for f in os.listdir(folder_path)
+                          if not f.startswith(".") and (f.endswith(".png") or f.endswith(".jpg"))],
+                         key=lambda f: f.lower())
+
+    for name in image_names:
+        cv2.imwrite(os.path.join(new_folder, name), analyse_resulting_image(os.path.join(folder_path, name)))
+
+
+# analyse_resulting_image_folder(
+#     "/media/winbuntu/google-drive/Descargas/deep_crack_detection-VGG-encoder/deep_crack_detection/results_training")

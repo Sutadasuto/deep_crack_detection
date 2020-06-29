@@ -4,8 +4,6 @@ from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
 from tensorflow.keras.losses import *
 
-from tensorflow.keras.optimizers import Adam
-
 
 # Define sampling with reparameterization trick
 def sample_z(args):
@@ -89,11 +87,11 @@ def vae(input_shape, latent_dim=2, self_supervised=True):
         #     loss = mse(K.flatten(y), K.flatten(y_decoded))
         #     # loss *= inputs.shape[1] * inputs.shape[2]
         #     return loss
-        from custom_losses import LM_Loss
+        from callbacks_and_losses.custom_losses import LM_Loss
         reconstruction_loss = LM_Loss().loss
 
     else:
-        from custom_losses import dice_coef_loss
+        from callbacks_and_losses.custom_losses import dice_coef_loss
         def reconstruction_loss(y, y_decoded):
             alpha = 0.5
             loss = binary_crossentropy(K.flatten(y), K.flatten(y_decoded))

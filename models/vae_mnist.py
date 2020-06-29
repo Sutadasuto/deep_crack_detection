@@ -5,7 +5,6 @@
 from tensorflow.keras.layers import Conv2D, Conv2DTranspose, Input, Flatten, Dense, Lambda, Reshape
 from tensorflow.keras.layers import BatchNormalization
 from tensorflow.keras.models import Model
-from tensorflow.keras.losses import binary_crossentropy, mse
 from tensorflow.keras import backend as K
 
 # Define sampling with reparameterization trick
@@ -83,7 +82,7 @@ def vae_mnist(input_size, latent_dim=2, self_supervised=True):
     # vae.summary()
 
 
-    from custom_losses import LM_Loss
+    from callbacks_and_losses.custom_losses import LM_Loss
     lm = LM_Loss()
     # Define loss
     def kl_reconstruction_loss(true, pred):

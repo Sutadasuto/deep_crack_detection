@@ -1,10 +1,10 @@
 import numpy as np
 
 import tensorflow.keras.backend as K
-from tensorflow.keras.layers import Input, Conv2D
+from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.losses import BinaryCrossentropy, binary_crossentropy, MeanSquaredError, CosineSimilarity
-from leung_malik import LeungMalik
+from tensorflow.keras.losses import BinaryCrossentropy, MeanSquaredError
+from callbacks_and_losses.leung_malik import LeungMalik
 
 # Smooth factor for dice coefficient. DC = (2 * GT n Pred + 1) / (GT u Pred + 1)
 smooth = 1
