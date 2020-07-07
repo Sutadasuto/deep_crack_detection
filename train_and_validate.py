@@ -114,20 +114,21 @@ def main(args):
     with open(os.path.join("results_test", "results.txt"), "w") as f:
         f.write(result_string.strip())
 
-    # Save results using the min val loss epoch's weights
-    model.load_weights('%s_best.hdf5' % args.model)
-    data.save_results_on_paths(model, training_paths, "results_training_min_val_loss")
-    data.save_results_on_paths(model, test_paths, "results_test_min_val_loss")
-    metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
-                                                         rgb_preprocessor=rgb_preprocessor),
-                             steps=test_paths.shape[1])
-    result_string = "Dataset: %s\nModel: %s\n" % ("/".join(args.dataset_names), args.model)
-    for idx, metric in enumerate(model.metrics_names):
-        result_string += "{}: {:.4f}\n".format(metric, metrics[idx])
-    for attribute in args.__dict__.keys():
-        result_string += "\n--%s: %s" % (attribute, str(args.__getattribute__(attribute)))
-    with open(os.path.join("results_test_min_val_loss", "results.txt"), "w") as f:
-        f.write(result_string.strip())
+    if args.epochs > 0:
+        # Save results using the min val loss epoch's weights
+        model.load_weights('%s_best.hdf5' % args.model)
+        data.save_results_on_paths(model, training_paths, "results_training_min_val_loss")
+        data.save_results_on_paths(model, test_paths, "results_test_min_val_loss")
+        metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
+                                                             rgb_preprocessor=rgb_preprocessor),
+                                 steps=test_paths.shape[1])
+        result_string = "Dataset: %s\nModel: %s\n" % ("/".join(args.dataset_names), args.model)
+        for idx, metric in enumerate(model.metrics_names):
+            result_string += "{}: {:.4f}\n".format(metric, metrics[idx])
+        for attribute in args.__dict__.keys():
+            result_string += "\n--%s: %s" % (attribute, str(args.__getattribute__(attribute)))
+        with open(os.path.join("results_test_min_val_loss", "results.txt"), "w") as f:
+            f.write(result_string.strip())
 
     # summarize history for loss
     for key in history.history.keys():

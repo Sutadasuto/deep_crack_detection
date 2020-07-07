@@ -6,6 +6,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.losses import BinaryCrossentropy, MeanSquaredError
 from callbacks_and_losses.leung_malik import LeungMalik
 
+
 # Smooth factor for dice coefficient. DC = (2 * GT n Pred + 1) / (GT u Pred + 1)
 smooth = 1
 

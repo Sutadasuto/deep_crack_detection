@@ -71,9 +71,9 @@ def vae(input_shape, latent_dim=2, self_supervised=True):
     conv9 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
     conv9 = Conv2D(2, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
     conv10 = Conv2D(1, 1, activation='sigmoid')(conv9)
-    decoder = Model([inputs, latent], conv10, name='decoder')
+    decoder = Model(latent, conv10, name='decoder')
 
-    outputs = decoder([inputs, encoder(inputs)[0]])
+    outputs = decoder(encoder(inputs)[0])
     vae = Model(inputs, outputs, name='vae')
 
     def kl_loss():

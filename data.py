@@ -122,7 +122,7 @@ def noisy_version(image, noise_typ):
                   for i in image.shape[:-1]]
         for channel in range(image.shape[-1]):
             channel_coords = tuple(coords + [np.array([channel for i in range(num_salt)])])
-            out[channel_coords] = 1
+            out[channel_coords] = image.max()
 
         # Pepper mode
         num_pepper = int(np.ceil(amount * image.size * (1. - s_vs_p)))
@@ -130,7 +130,7 @@ def noisy_version(image, noise_typ):
                   for i in image.shape[:-1]]
         for channel in range(image.shape[-1]):
             channel_coords = tuple(coords + [np.array([channel for i in range(num_pepper)])])
-            out[channel_coords] = -1
+            out[channel_coords] = image.min()
         return out
 
     elif noise_typ == "speckle":
@@ -195,7 +195,7 @@ def get_image(im_path, input_size, normalize=True, rgb=False):
             im = ((im - im.min()) / (im.max() - im.min()) - 0.5) / 0.5
             im *= -1  # Negative so cracks are brighter
         else:
-            im = im / 255.0
+            im = 1.0 - im / 255.0
 
     im = manual_padding(im, n_pooling_layers=4)
     if len(im.shape) == 2:
@@ -203,26 +203,33 @@ def get_image(im_path, input_size, normalize=True, rgb=False):
     return im
 
 
-def get_gt_image(gt_path, input_size):
-    gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
-    binary = True if len(np.unique(gt)) == 2 else False
+def get_gt_image(gt_path, input_size, rgb=False):
+    if not rgb:
+        gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
+    else:
+        gt = cv2.cvtColor(cv2.imread(gt_path), cv2.COLOR_BGR2RGB)
+    binary = True if len(np.unique(gt)) <= 2 else False
     if input_size:
         gt = cv2.resize(gt, (input_size[1], input_size[0]))
     if binary:
+        if rgb:
+            gt = cv2.cvtColor(gt, cv2.COLOR_BGR2GRAY)
         ret, gt = cv2.threshold(gt, 127, 255, cv2.THRESH_BINARY)
-    gt = (gt / 255)
+    gt = (gt / 255.0)
     if binary:
         n_white = np.sum(gt)
         n_black = gt.shape[0] * gt.shape[1] - n_white
         if n_black < n_white:
             gt = 1 - gt
-    else:
-        gt = 1 - gt
+
     gt = manual_padding(gt, n_pooling_layers=4)
-    return gt[..., None]  # Channels last
+    if len(gt.shape) < 3:
+        return gt[..., None]  # Channels last
+    else:
+        return gt
 
 
-def test_image_generator(paths, input_size, batch_size=1, rgb_preprocessor=None):
+def test_image_generator(paths, input_size, batch_size=1, rgb_preprocessor=None, normalize_x=True):
     _, n_images = paths.shape
     rgb = True if rgb_preprocessor else False
     i = 0
@@ -236,8 +243,8 @@ def test_image_generator(paths, input_size, batch_size=1, rgb_preprocessor=None)
             im_path = paths[0][i]
             gt_path = paths[1][i]
 
-            im = get_image(im_path, input_size, rgb=rgb)
-            gt = get_gt_image(gt_path, input_size)
+            im = get_image(im_path, input_size, rgb=rgb, normalize=normalize_x)
+            gt = get_gt_image(gt_path, input_size, rgb=rgb)
             if rgb:
                 batch_x.append(rgb_preprocessor(im))
             else:
@@ -249,76 +256,76 @@ def test_image_generator(paths, input_size, batch_size=1, rgb_preprocessor=None)
         yield np.array(batch_x), np.array(batch_y)
 
 
-def train_image_generator_legacy(paths, input_size, batch_size=1, resize=False, count_samples_mode=False,
-                                 rgb_preprocessor=None):
-    _, n_images = paths.shape
-    rgb = True if rgb_preprocessor else False
-    i = 0
-    n_samples = 0
-    prev_im = False
-    while True:
-        batch_x = []
-        batch_y = []
-        b = 0
-        while b < batch_size:
-            if i == n_images:
-                if count_samples_mode:
-                    yield n_samples
-                i = 0
-                n_samples = 0
-                np.random.shuffle(paths.transpose())
-            im_path = paths[0][i]
-            gt_path = paths[1][i]
-
-            if resize:
-                im = get_image(im_path, input_size, rgb=rgb)
-                gt = get_gt_image(gt_path, input_size)
-                if rgb:
-                    batch_x.append(rgb_preprocessor(im))
-                else:
-                    batch_x.append(im)
-                batch_y.append(gt)
-                n_samples += 1
-                b += 1
-                i += 1
-            else:
-                if input_size:
-                    if not prev_im:
-                        im = get_image(im_path, input_size=None, rgb=rgb)
-                        gt = get_gt_image(gt_path, input_size=None)
-                        win_gen = crop_generator(im, gt, input_size)
-                        prev_im = True
-                    try:
-                        [im, gt] = next(win_gen)
-                        if rgb:
-                            batch_x.append(rgb_preprocessor(im))
-                        else:
-                            batch_x.append(im)
-                        batch_y.append(gt)
-                        n_samples += 1
-                        b += 1
-                    except StopIteration:
-                        prev_im = False
-                        i += 1
-
-                else:
-                    im = get_image(im_path, input_size=None)
-                    gt = get_gt_image(gt_path, input_size=None)
-                    if rgb:
-                        batch_x.append(rgb_preprocessor(im))
-                    else:
-                        batch_x.append(im)
-                    batch_y.append(gt)
-                    n_samples += 1
-                    b += 1
-                    i += 1
-
-        if not count_samples_mode:
-            yield np.array(batch_x), np.array(batch_y)
-
+# def train_image_generator_legacy(paths, input_size, batch_size=1, resize=False, count_samples_mode=False,
+#                                  rgb_preprocessor=None):
+#     _, n_images = paths.shape
+#     rgb = True if rgb_preprocessor else False
+#     i = 0
+#     n_samples = 0
+#     prev_im = False
+#     while True:
+#         batch_x = []
+#         batch_y = []
+#         b = 0
+#         while b < batch_size:
+#             if i == n_images:
+#                 if count_samples_mode:
+#                     yield n_samples
+#                 i = 0
+#                 n_samples = 0
+#                 np.random.shuffle(paths.transpose())
+#             im_path = paths[0][i]
+#             gt_path = paths[1][i]
+#
+#             if resize:
+#                 im = get_image(im_path, input_size, rgb=rgb)
+#                 gt = get_gt_image(gt_path, input_size)
+#                 if rgb:
+#                     batch_x.append(rgb_preprocessor(im))
+#                 else:
+#                     batch_x.append(im)
+#                 batch_y.append(gt)
+#                 n_samples += 1
+#                 b += 1
+#                 i += 1
+#             else:
+#                 if input_size:
+#                     if not prev_im:
+#                         im = get_image(im_path, input_size=None, rgb=rgb)
+#                         gt = get_gt_image(gt_path, input_size=None)
+#                         win_gen = crop_generator(im, gt, input_size)
+#                         prev_im = True
+#                     try:
+#                         [im, gt] = next(win_gen)
+#                         if rgb:
+#                             batch_x.append(rgb_preprocessor(im))
+#                         else:
+#                             batch_x.append(im)
+#                         batch_y.append(gt)
+#                         n_samples += 1
+#                         b += 1
+#                     except StopIteration:
+#                         prev_im = False
+#                         i += 1
+#
+#                 else:
+#                     im = get_image(im_path, input_size=None)
+#                     gt = get_gt_image(gt_path, input_size=None)
+#                     if rgb:
+#                         batch_x.append(rgb_preprocessor(im))
+#                     else:
+#                         batch_x.append(im)
+#                     batch_y.append(gt)
+#                     n_samples += 1
+#                     b += 1
+#                     i += 1
+#
+#         if not count_samples_mode:
+#             yield np.array(batch_x), np.array(batch_y)
+#
 
 def train_image_generator(paths, input_size, batch_size=1, resize=False, count_samples_mode=False,
-                          rgb_preprocessor=None, data_augmentation=True):
+                          rgb_preprocessor=None, normalize_x=True, data_augmentation=True):
     _, n_images = paths.shape
     rgb = True if rgb_preprocessor else False
 
@@ -360,8 +367,8 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
                 im_path = paths[0][i]
                 gt_path = paths[1][i]
 
-                or_im = get_image(im_path, input_size=None, rgb=rgb)
-                or_gt = get_gt_image(gt_path, input_size=None)
+                or_im = get_image(im_path, input_size=None, rgb=rgb, normalize=normalize_x)
+                or_gt = get_gt_image(gt_path, input_size=None, rgb=rgb)
 
                 ims = np.zeros((n_transformations, or_im.shape[0], or_im.shape[1], or_im.shape[2]), dtype=or_im.dtype)
                 gts = np.zeros((n_transformations, or_gt.shape[0], or_gt.shape[1], or_gt.shape[2]), dtype=or_gt.dtype)
@@ -399,9 +406,15 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
                 gt = cv2.resize(gt, (input_size[1], input_size[0]))
                 if rgb:
                     batch_x.append(rgb_preprocessor(im))
+                elif len(im.shape) < 3:
+                    batch_x.append(im[..., None])
                 else:
                     batch_x.append(im)
-                batch_y.append(gt)
+                if len(gt.shape) < 3:
+                    batch_y.append(gt[..., None])
+                else:
+                    batch_y.append(gt)
+
                 n_samples += 1
                 b += 1
                 j += 1
@@ -456,56 +469,61 @@ def get_preprocessor(model):
         return None
 
 
-def save_results_on_paths(model, paths, save_to="results"):
-    compound_images = test_images_from_paths(model, paths)
+def save_results_on_paths(model, paths, save_to="results", normalize_x=True, rgb_preprocessor=None):
+    compound_images = test_images_from_paths(model, paths, normalize_x, rgb_preprocessor)
     n_im = len(compound_images[0])
 
     if not os.path.exists(save_to):
         os.makedirs(save_to)
     for im in range(n_im):
         im_name = os.path.split(paths[0][im])[-1]
+        for i in range(len(compound_images)):
+            if len(compound_images[i][im].shape) < 3:
+                compound_images[i][im] = compound_images[i][im][..., None]
+            if compound_images[i][im].shape[-1] == 1:
+                compound_images[i][im] = np.concatenate([compound_images[i][im] for j in range(3)], axis=-1)
         cv2.imwrite(os.path.join(save_to, im_name),
                     255 * np.concatenate([compound_images[0][im], compound_images[1][im], compound_images[2][im]],
                                          axis=1))
 
 
-def test_image_from_path(model, input_path, gt_path):
+def test_image_from_path(model, input_path, gt_path, normalize_x=True, rgb_preprocessor=None):
     input_shape = tuple(model.input.shape[1:-1])
-    rgb_preprocessor = get_preprocessor(model)
+    if rgb_preprocessor is None:
+        rgb_preprocessor = get_preprocessor(model)
     rgb = True if rgb_preprocessor else False
     if input_shape == (None, None):
         input_shape = None
     if rgb:
         prediction = model.predict(
-            rgb_preprocessor(get_image(input_path, input_shape, normalize=True, rgb=rgb))[None, ...])[0, :, :, 0]
+            rgb_preprocessor(get_image(input_path, input_shape, normalize=normalize_x, rgb=rgb))[None, ...])[0, ...]
     else:
-        prediction = model.predict(get_image(input_path, input_shape, normalize=True)[None, ...])[0, :, :, 0]
+        prediction = model.predict(get_image(input_path, input_shape, normalize=normalize_x)[None, ...])[0, ...]
 
     if gt_path:
         gt = get_gt_image(gt_path, input_shape)[..., 0]
-    input_image = get_image(input_path, None, normalize=False)[..., 0]
+    input_image = 1 - get_image(input_path, None, normalize=False)
     if gt_path:
         return [input_image, gt, prediction]
     return [input_image, None, prediction]
 
 
-def test_images_from_paths(model, paths):
+def test_images_from_paths(model, paths, normalize_x=True, rgb_preprocessor=None):
     input_shape = tuple(model.input.shape[1:-1])
-    rgb_preprocessor = get_preprocessor(model)
+    if rgb_preprocessor is None:
+        rgb_preprocessor = get_preprocessor(model)
     rgb = True if rgb_preprocessor else False
     if input_shape == (None, None):
         input_shape = None
     if rgb:
         predictions = [
-            model.predict(rgb_preprocessor(get_image(im_path, input_shape, normalize=True, rgb=rgb))[None, ...])[0, :,
-            :, 0] for im_path in
-            paths[0, :]]
+            model.predict(rgb_preprocessor(get_image(im_path, input_shape, normalize=normalize_x, rgb=rgb))[None, ...])[
+                0, ...] for im_path in paths[0, :]]
     else:
-        predictions = [model.predict(get_image(im_path, input_shape, normalize=True)[None, ...])[0, :, :, 0] for im_path
-                       in
-                       paths[0, :]]
+        predictions = [model.predict(get_image(im_path, input_shape, normalize=normalize_x)[None, ...])[0, ...]
+                       for im_path in paths[0, :]]
     gts = [get_gt_image(gt_path, input_shape)[..., 0] for gt_path in paths[1, :]]
-    ims = [get_image(im_path, input_shape, normalize=False)[..., 0] for im_path in paths[0, :]]
+    ims = [1 - get_image(im_path, input_shape, normalize=False)[..., 0] for im_path in paths[0, :]]
     return [ims, gts, predictions]
 
 
@@ -533,13 +551,15 @@ def analyze_gt_pred(im, gt, pred):
     comparative_mask = compare_masks(gt, pred)
     white_line_v = 255 * np.ones((comparative_mask.shape[0], 1, 3))
     first_row = np.concatenate(
-        (im, white_line_v, gt_highlight_cracks, white_line_v, pred_highlight_cracks, white_line_v, comparative_mask), axis=1)
+        (im, white_line_v, gt_highlight_cracks, white_line_v, pred_highlight_cracks, white_line_v, comparative_mask),
+        axis=1)
     white_line_h = 255 * np.ones((1, first_row.shape[1], 3))
 
-    gt_highlight_cracks = highlight_cracks(255-im, gt)
-    pred_highlight_cracks = highlight_cracks(255-im, pred)
+    gt_highlight_cracks = highlight_cracks(255 - im, gt)
+    pred_highlight_cracks = highlight_cracks(255 - im, pred)
     second_row = np.concatenate(
-        (255-im, white_line_v, gt_highlight_cracks, white_line_v, pred_highlight_cracks, white_line_v, comparative_mask), axis=1)
+        (255 - im, white_line_v, gt_highlight_cracks, white_line_v, pred_highlight_cracks, white_line_v,
+         comparative_mask), axis=1)
     return np.concatenate((first_row, white_line_h, second_row), axis=0)
 
 
@@ -565,7 +585,6 @@ def analyse_resulting_image_folder(folder_path, new_folder=None):
 
     for name in image_names:
         cv2.imwrite(os.path.join(new_folder, name), analyse_resulting_image(os.path.join(folder_path, name)))
-
 
 # analyse_resulting_image_folder(
 #     "/media/winbuntu/google-drive/Descargas/deep_crack_detection-VGG-encoder/deep_crack_detection/results_training")
