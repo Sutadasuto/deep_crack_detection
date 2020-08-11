@@ -34,10 +34,15 @@ def main(args):
 
     [im, gt, pred] = data.test_image_from_path(model, args.image_path, args.gt_path)
 
-    if gt is not None:
-        result = 255 * np.concatenate([im, gt, pred], axis=1)
-    else:
-        result = 255 * np.concatenate([im, pred], axis=1)
+    elements = [im, gt, pred] if gt is not None else [im, pred]
+    result = (255*np.concatenate(elements, axis=1)).astype(np.int)
+    if args.overlay:
+        width = int(result.shape[1] / len(elements))
+        # Replace the result by the input image colored red in the predicted zones
+        result = np.concatenate([result for i in range(3)], axis=-1)
+        mask = result[:, -width:, :]
+        mask[:, :, 0:2] *= 0
+        result[:, -width:, :] = np.maximum(mask, result[:, :width, :])
 
     if args.save_to:
         if args.save_to == "result_imName":
@@ -49,7 +54,10 @@ def main(args):
 
     if args.show_result:
         import matplotlib.pyplot as plt
-        imgplot = plt.imshow(result, cmap="gray")
+        if result.shape[-1] == 1:
+            imgplot = plt.imshow(result[..., 0], cmap="gray")
+        else:
+            imgplot = plt.imshow(np.flip(result, -1))
         plt.show()
 
 
@@ -65,6 +73,9 @@ def parse_args(args=None):
                              "shown together in a new screen.")
     parser.add_argument("--save_to", type=str, default="result_imName", help="Save the comparison image to this location. "
                                                                           "If 'None', no image will be saved")
+    parser.add_argument("--overlay", type=str, default="False",
+                        help="'True' or 'False'. If True, the predicted image will be used as a red mask over the "
+                             "input image instead of being shown as binary image.")
     args_dict = parser.parse_args(args)
     for attribute in args_dict.__dict__.keys():
         if args_dict.__getattribute__(attribute) == "None":

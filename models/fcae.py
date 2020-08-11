@@ -47,11 +47,12 @@ def fcae(input_shape, latent_dim=0.0625, self_supervised=True):
     fcae = Model(inputs, outputs, name='fcae')
 
     content_layers = ['block1_conv2']
-    style_layers = ['block1_conv1',
-                    'block2_conv1',
-                    'block3_conv1',
-                    'block4_conv1',
-                    'block5_conv1']
+    style_layers = ['block4_conv4',
+                    'block5_conv4']
+                    # 'block2_conv1',
+                    # 'block3_conv1',
+                    # 'block4_conv1',
+                    # 'block5_conv1']
     num_content_layers = len(content_layers)
     num_style_layers = len(style_layers)
     extractor = vgg.StyleContentModel(style_layers, content_layers)
