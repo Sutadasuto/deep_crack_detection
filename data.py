@@ -19,6 +19,8 @@ def create_image_paths(dataset_names, dataset_paths):
             or_im_paths, gt_paths = paths_generator_crack_dataset(dataset_path, "AIGLE_RN")
         elif dataset_name == "esar":
             or_im_paths, gt_paths = paths_generator_crack_dataset(dataset_path, "ESAR")
+        elif dataset_name == "crack500" or dataset_name == "gaps384" or dataset_name == "cracktree200":
+            or_im_paths, gt_paths = paths_generator_fphb(dataset_path, dataset_name)
         paths = np.concatenate([paths, [or_im_paths, gt_paths]], axis=-1)
     return paths
 
@@ -66,6 +68,46 @@ def paths_generator_cfd(dataset_path):
 
     return training_image_paths, ground_truth_image_paths
 
+
+def paths_generator_fphb(dataset_path, dataset_name):
+    if dataset_name == "crack500":
+        ground_truth_paths = [os.path.join(dataset_path, "traincrop"), os.path.join(dataset_path, "valcrop"),
+                              os.path.join(dataset_path, "testcrop")]
+        ground_truth_image_paths = []
+        for ground_truth_path in ground_truth_paths:
+
+            ground_truth_image_paths += sorted(
+                [os.path.join(ground_truth_path, f) for f in os.listdir(ground_truth_path)
+                 if not f.startswith(".") and f.endswith(".png")],
+                key=lambda f: f.lower())
+
+        training_image_paths = [f.replace(".png", ".jpg") for f in ground_truth_image_paths]
+
+    elif dataset_name == "gaps384":
+        ground_truth_path = os.path.join(dataset_path, "croppedgt")
+        image_path = os.path.join(dataset_path, "croppedimg")
+
+        ground_truth_image_paths = sorted([os.path.join(ground_truth_path, f) for f in os.listdir(ground_truth_path)
+                                           if not f.startswith(".") and f.endswith(".png")],
+                                          key=lambda f: f.lower())
+        training_image_paths = sorted([os.path.join(image_path, f.replace(".png", ".jpg"))
+                                       for f in os.listdir(ground_truth_path)
+                                           if not f.startswith(".") and f.endswith(".png")],
+                                          key=lambda f: f.lower())
+
+    elif dataset_name == "cracktree200":
+        ground_truth_path = os.path.join(dataset_path, "cracktree200_gt")
+        image_path = os.path.join(dataset_path, "cracktree200rgb")
+
+        ground_truth_image_paths = sorted([os.path.join(ground_truth_path, f) for f in os.listdir(ground_truth_path)
+                                           if not f.startswith(".") and f.endswith(".png")],
+                                          key=lambda f: f.lower())
+        training_image_paths = sorted([os.path.join(image_path, f.replace(".png", ".jpg"))
+                                       for f in os.listdir(ground_truth_path)
+                                       if not f.startswith(".") and f.endswith(".png")],
+                                      key=lambda f: f.lower())
+
+    return training_image_paths, ground_truth_image_paths
 
 ### Loading images for Keras
 
@@ -256,6 +298,34 @@ def test_image_generator(paths, input_size, batch_size=1, rgb_preprocessor=None,
         yield np.array(batch_x), np.array(batch_y)
 
 
+def test_image_generator_clean(paths, input_size, batch_size=1, rgb_preprocessor=None, normalize_x=True):
+    _, n_images = paths.shape
+    rgb = True if rgb_preprocessor else False
+    i = 0
+    while True:
+        batch_x = []
+        batch_y = []
+        b = 0
+        while b < batch_size:
+            if i == n_images:
+                i = 0
+            im_path = paths[0][i]
+            gt_path = paths[1][i]
+
+            im = get_image(im_path, input_size, rgb=rgb, normalize=normalize_x)
+            gt = get_gt_image(gt_path, input_size, rgb=rgb)
+
+            if rgb:
+                batch_x.append(rgb_preprocessor(im))
+            else:
+                batch_x.append(im)
+            batch_y.append(gt)
+            b += 1
+            i += 1
+
+        yield np.array(batch_x), np.array(batch_x)
+
+
 # def train_image_generator_legacy(paths, input_size, batch_size=1, resize=False, count_samples_mode=False,
 #                                  rgb_preprocessor=None):
 #     _, n_images = paths.shape
@@ -329,11 +399,12 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
     _, n_images = paths.shape
     rgb = True if rgb_preprocessor else False
 
+
     # All available transformations for data augmentation. 'None' implies no change
     if data_augmentation:
-        noises = [None, "gauss", "s&p", "speckle"]
-        rotations = [None, 90.0, 180.0, 270.0]
-        flips = [None, "h", "v"]
+        noises = [None, "gauss", "s&p", "speckle"]  # s&p = salt and pepper
+        rotations = [None, 90.0, 180.0, 270.0]  # Degrees
+        flips = [None, "h", "v"]  # Horizontal, Vertical
     # This means no noise, no rotation and no flip (i.e. only the original image is provided)
     else:
         noises = [None]
@@ -356,6 +427,8 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
             if j == n_transformations:
                 j = 0
                 i += 1
+                if count_samples_mode:
+                    print("\r%s/%s paths analyzed so far" % (str(i).zfill(len(str(n_images))), n_images), end='')
 
                 if i == n_images:
                     if count_samples_mode:
@@ -450,6 +523,143 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
             yield np.array(batch_x), np.array(batch_y)
 
 
+def train_image_generator_clean(paths, input_size, batch_size=1, resize=False, count_samples_mode=False,
+                          rgb_preprocessor=None, normalize_x=True, data_augmentation=True):
+    _, n_images = paths.shape
+    rgb = True if rgb_preprocessor else False
+
+
+    # All available transformations for data augmentation. 'None' implies no change
+    if data_augmentation:
+        noises = [None, "gauss", "s&p", "speckle"]
+        rotations = [None, 90.0, 180.0, 270.0]
+        flips = [None, "h", "v"]
+    # This means no noise, no rotation and no flip (i.e. only the original image is provided)
+    else:
+        noises = [None]
+        rotations = [None]
+        flips = [None]
+
+    n_transformations = len(noises) * len(rotations) * len(flips)
+
+    i = -1
+    j = n_transformations
+    prev_im = False
+
+    n_samples = 0
+
+    while True:
+        batch_x = []
+        batch_y = []
+        b = 0
+        while b < batch_size:
+            if j == n_transformations:
+                j = 0
+                i += 1
+                if count_samples_mode:
+                    print("\r%s/%s paths analyzed so far" % (str(i).zfill(len(str(n_images))), n_images), end='')
+
+                if i == n_images:
+                    if count_samples_mode:
+                        yield n_samples
+                    i = 0
+                    n_samples = 0
+                    np.random.shuffle(paths.transpose())
+
+                im_path = paths[0][i]
+                gt_path = paths[1][i]
+
+                or_im = get_image(im_path, input_size=None, rgb=rgb, normalize=normalize_x)
+                or_gt = get_gt_image(gt_path, input_size=None, rgb=rgb)
+
+                ims = np.zeros((n_transformations, or_im.shape[0], or_im.shape[1], or_im.shape[2]), dtype=or_im.dtype)
+                gts = np.zeros((n_transformations, or_gt.shape[0], or_gt.shape[1], or_gt.shape[2]), dtype=or_gt.dtype)
+                channel = 0
+
+                for noise in noises:
+                    noisy = noisy_version(or_im, noise)
+
+                    for rotation in rotations:
+                        rotated = rotated_version(noisy, rotation)
+                        rotated_gt = rotated_version(or_gt, rotation)
+
+                        for flip in flips:
+                            flipped = flipped_version(rotated, flip)
+                            flipped_gt = flipped_version(rotated_gt, flip)
+                            if ims[channel, :, :, :].shape == flipped.shape:
+                                ims[channel, ...] = flipped
+                                gts[channel, ...] = flipped_gt
+                            else:
+                                flipped = cv2.resize(flipped, (or_im.shape[1], or_im.shape[0]))
+                                if len(flipped.shape) == 2:
+                                    flipped = flipped[..., None]
+                                ims[channel, ...] = flipped
+                                flipped_gt = cv2.resize(flipped_gt, (or_gt.shape[1], or_gt.shape[0]))
+                                if len(flipped_gt.shape) == 2:
+                                    flipped_gt = flipped_gt[..., None]
+                                gts[channel, ...] = flipped_gt
+                            channel += 1
+
+            im = ims[j, ...]
+            gt = gts[j, ...]
+
+            if resize:
+                im = cv2.resize(im, (input_size[1], input_size[0]))
+                gt = cv2.resize(gt, (input_size[1], input_size[0]))
+                if len(np.unique(gt)) > 1:
+                    j += 1
+                    continue
+                if rgb:
+                    batch_x.append(rgb_preprocessor(im))
+                elif len(im.shape) < 3:
+                    batch_x.append(im[..., None])
+                else:
+                    batch_x.append(im)
+                if len(gt.shape) < 3:
+                    batch_y.append(gt[..., None])
+                else:
+                    batch_y.append(gt)
+
+                n_samples += 1
+                b += 1
+                j += 1
+            else:
+                if input_size:
+                    if not prev_im:
+                        win_gen = crop_generator(im, gt, input_size)
+                        prev_im = True
+                    try:
+                        [im, gt] = next(win_gen)
+                        if len(np.unique(gt)) > 1:
+                            continue
+                        if rgb:
+                            batch_x.append(rgb_preprocessor(im))
+                        else:
+                            batch_x.append(im)
+                        batch_y.append(gt)
+                        n_samples += 1
+                        b += 1
+                    except StopIteration:
+                        prev_im = False
+                        j += 1
+
+                else:
+                    if len(np.unique(gt)) > 1:
+                        j += 1
+                        continue
+                    if rgb:
+                        batch_x.append(rgb_preprocessor(im))
+                    else:
+                        batch_x.append(im)
+                    batch_y.append(gt)
+                    n_samples += 1
+                    b += 1
+                    j += 1
+
+        if not count_samples_mode:
+            yield np.array(batch_x), np.array(batch_x)
+
+
 # Test model on images
 def get_preprocessor(model):
     """
@@ -470,21 +680,37 @@ def get_preprocessor(model):
 
 
 def save_results_on_paths(model, paths, save_to="results", normalize_x=True, rgb_preprocessor=None):
-    compound_images = test_images_from_paths(model, paths, normalize_x, rgb_preprocessor)
-    n_im = len(compound_images[0])
+    # Legacy code. Too much memory consumption on big datasets
+    # compound_images = test_images_from_paths(model, paths, normalize_x, rgb_preprocessor)
+    # n_im = len(compound_images[0])
+    #
+    # if not os.path.exists(save_to):
+    #     os.makedirs(save_to)
+    # for im in range(n_im):
+    #     im_name = os.path.split(paths[0][im])[-1]
+    #     for i in range(len(compound_images)):
+    #         if len(compound_images[i][im].shape) < 3:
+    #             compound_images[i][im] = compound_images[i][im][..., None]
+    #         if compound_images[i][im].shape[-1] == 1:
+    #             compound_images[i][im] = np.concatenate([compound_images[i][im] for j in range(3)], axis=-1)
+    #     cv2.imwrite(os.path.join(save_to, im_name),
+    #                 255 * np.concatenate([compound_images[0][im], compound_images[1][im], compound_images[2][im]],
+    #                                      axis=1))
 
     if not os.path.exists(save_to):
         os.makedirs(save_to)
-    for im in range(n_im):
-        im_name = os.path.split(paths[0][im])[-1]
-        for i in range(len(compound_images)):
-            if len(compound_images[i][im].shape) < 3:
-                compound_images[i][im] = compound_images[i][im][..., None]
-            if compound_images[i][im].shape[-1] == 1:
-                compound_images[i][im] = np.concatenate([compound_images[i][im] for j in range(3)], axis=-1)
+
+    for path_index in range(paths.shape[-1]):
+        im_name = os.path.split(paths[0, path_index])[-1]
+        compound_image = test_image_from_path(model, paths[0, path_index], paths[1, path_index], normalize_x, rgb_preprocessor)
+        for im in range(len(compound_image)):
+            if len(compound_image[im].shape) < 3:
+                compound_image[im] = compound_image[im][..., None]
+            if compound_image[im].shape[-1] == 1:
+                compound_image[im] = np.concatenate([compound_image[im] for j in range(3)], axis=-1)
         cv2.imwrite(os.path.join(save_to, im_name),
-                    255 * np.concatenate([compound_images[0][im], compound_images[1][im], compound_images[2][im]],
-                                         axis=1))
+                    255 * np.concatenate([compound_image[0], compound_image[1], compound_image[2]], axis=1))
+        print("\r%s/%s paths analyzed so far" % (str(path_index).zfill(len(str(paths.shape[-1]))), paths.shape[-1]), end='')
 
 
 def test_image_from_path(model, input_path, gt_path, normalize_x=True, rgb_preprocessor=None):
@@ -531,7 +757,7 @@ def test_images_from_paths(model, paths, normalize_x=True, rgb_preprocessor=None
 def highlight_cracks(or_im, mask):
     highlight_mask = np.zeros(mask.shape, dtype=np.float)
     highlight_mask[np.where(mask >= 128)] = 1.0
-    highlight_mask[np.where(mask < 128)] = 0.5
+    highlight_mask[np.where(mask < 128)] = 0.1
     return or_im * highlight_mask
 
 

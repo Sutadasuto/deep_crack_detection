@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+from datetime import datetime
 from distutils.util import strtobool
 from tensorflow.keras.optimizers import Adam
 import tensorflow.keras.metrics as keras_metrics
@@ -23,6 +24,12 @@ models_dict = get_models_dict()
 
 
 def main(args):
+    start = datetime.now().strftime("%d-%m-%Y_%H.%M")
+    results_dir = "results_%s" % start
+    results_train_dir = os.path.join(results_dir, "results_training")
+    results_train_min_loss_dir = results_train_dir + "_min_val_loss"
+    results_test_dir = os.path.join(results_dir, "results_test")
+    results_test_min_loss_dir = results_test_dir + "_min_val_loss"
     input_size = (None, None)
     # Load model from JSON file if file path was provided...
     if os.path.exists(args.model):
@@ -73,9 +80,12 @@ def main(args):
     test_paths = paths[:, n_training_images:]
 
     # As input images can be of different sizes, here we calculate the total number of patches used for training.
+    print("Calculating the total number of samples after cropping and data augmentatiton. "
+          "This may take a while, don't worry.")
     n_train_samples = next(data.train_image_generator(training_paths, input_size, args.batch_size, resize=False,
                                                       count_samples_mode=True, rgb_preprocessor=None,
                                                       data_augmentation=args.use_da))
+    print("\nProceeding to train.")
 
     # A customized early stopping callback. At each epoch end, the callback will test the current weights on the
     # validation set (using whole iamges instead of patches) and stop the training if the minimum validation loss hasn't
@@ -85,24 +95,30 @@ def main(args):
 
     # Training begins. Note that the train image generator can use or not data augmentation through the parsed argument
     # 'use_da'
+    print("Start!")
     history = model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size,
                                                      rgb_preprocessor=rgb_preprocessor, data_augmentation=args.use_da),
                         epochs=args.epochs,
                         verbose=1, callbacks=[es],
                         steps_per_epoch=n_train_samples // args.batch_size)
+    print("Finished!")
 
     # Save the models of the last training epoch
     if args.epochs > 0:
         model.save_weights("%s.hdf5" % args.model)
+        print("Last epoch's weights saved.")
 
     # Verify if the trained model expects a particular input size
     evaluation_input_shape = tuple(model.input.shape[1:-1])
     if evaluation_input_shape == (None, None):
         evaluation_input_shape = None
 
-    # Save results using the last epoch's weights
-    data.save_results_on_paths(model, training_paths, "results_training")
-    data.save_results_on_paths(model, test_paths, "results_test")
+    print("Evaluating the model...")
+    print("On training paths:")
+    data.save_results_on_paths(model, training_paths, results_train_dir)
+    os.replace("%s.hdf5" % args.model, os.path.join(results_train_dir, "%s.hdf5" % args.model))
+    print("\nOn test paths:")
+    data.save_results_on_paths(model, test_paths, results_test_dir)
     metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
                                                          rgb_preprocessor=rgb_preprocessor),
                              steps=test_paths.shape[1])
@@ -111,14 +127,18 @@ def main(args):
         result_string += "{}: {:.4f}\n".format(metric, metrics[idx])
     for attribute in args.__dict__.keys():
         result_string += "\n--%s: %s" % (attribute, str(args.__getattribute__(attribute)))
-    with open(os.path.join("results_test", "results.txt"), "w") as f:
+    with open(os.path.join(results_test_dir, "results.txt"), "w") as f:
         f.write(result_string.strip())
 
-    if args.epochs > 0:
-        # Save results using the min val loss epoch's weights
+    if args.epochs > 1:
+        # Load results using the min val loss epoch's weights
         model.load_weights('%s_best.hdf5' % args.model)
-        data.save_results_on_paths(model, training_paths, "results_training_min_val_loss")
-        data.save_results_on_paths(model, test_paths, "results_test_min_val_loss")
+        print("Evaluating the model with minimum validation loss...")
+        print("On training paths:")
+        data.save_results_on_paths(model, training_paths, results_train_min_loss_dir)
+        print("\nOn test paths:")
+        data.save_results_on_paths(model, test_paths, results_test_min_loss_dir)
+        os.replace('%s_best.hdf5' % args.model, os.path.join(results_train_min_loss_dir, '%s_best.hdf5' % args.model))
         metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
                                                              rgb_preprocessor=rgb_preprocessor),
                                  steps=test_paths.shape[1])
@@ -127,9 +147,12 @@ def main(args):
             result_string += "{}: {:.4f}\n".format(metric, metrics[idx])
         for attribute in args.__dict__.keys():
             result_string += "\n--%s: %s" % (attribute, str(args.__getattribute__(attribute)))
-        with open(os.path.join("results_test_min_val_loss", "results.txt"), "w") as f:
+        with open(os.path.join(results_test_min_loss_dir, "results.txt"), "w") as f:
             f.write(result_string.strip())
 
+    print("\nPlotting training history...")
+    import pandas as pd
+    pd.DataFrame.from_dict(history.history).to_csv(os.path.join(results_dir, "training_history.csv"), index=False)
     # summarize history for loss
     for key in history.history.keys():
         plt.plot(history.history[key])
@@ -138,7 +161,7 @@ def main(args):
     plt.ylabel('value')
     plt.xlabel('epoch')
     plt.legend(history.history.keys(), loc='upper left')
-    plt.savefig("training_losses.png")
+    plt.savefig(os.path.join(results_dir, "training_losses.png"))
     # plt.show()
 
 

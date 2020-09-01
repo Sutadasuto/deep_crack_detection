@@ -52,10 +52,12 @@ def main(args):
     space = {'alpha': hp.choice('alpha', [0.3, 3.0, 5.0]),
              'learning_rate': hp.choice('learning_rate', [0.001, 0.0005, 0.0001, 0.00005, 0.00001]),
              'train_vgg': hp.choice('train_vgg', [True, False])}
+    metric_score = "dice_coef"
 
     def f_nn(params):
 
-        vgg19 = VGG19(include_top=False, weights='imagenet', input_tensor=None, input_shape=(None, None, 3), pooling=None)
+        vgg19 = VGG19(include_top=False, weights='imagenet', input_tensor=None, input_shape=(None, None, 3),
+                      pooling=None)
         encoder = Model(vgg19.input, vgg19.get_layer("block5_conv4").output, name="encoder")
 
         # encoder.trainable = params["train_vgg"]
@@ -140,7 +142,8 @@ def main(args):
                       , experimental_run_tf_function=False
                       )
 
-        es = EarlyStoppingAtMinValLoss(test_paths, file_path=None, patience=20, rgb_preprocessor=rgb_preprocessor)
+        es = EarlyStoppingAtMinValLoss(test_paths, file_path="best_test_weights.hdf5", patience=20,
+                                       rgb_preprocessor=rgb_preprocessor)
         history = model.fit(x=data.train_image_generator(training_paths, input_size, args.batch_size, resize=False,
                                                          rgb_preprocessor=rgb_preprocessor),
                             epochs=args.epochs,
@@ -153,35 +156,41 @@ def main(args):
             steps=test_paths.shape[1], verbose=0)
 
         for idx, metric in enumerate(model.metrics_names):
-            if metric == "dice_coef":
+            if metric == metric_score:
                 loss = metrics[idx]
                 break
 
         try:
-            with open("best_dsc.txt", "r") as f:
-                best_dsc = float(f.read())
+            with open("best_%s.txt" % metric_score, "r") as f:
+                best_metric_score = float(f.read())
         except FileNotFoundError:
-            best_dsc = 0
+            best_metric_score = 0
 
-        if loss > best_dsc:
-            with open("best_dsc.txt", "w") as f:
+        if loss > best_metric_score:
+            with open("best_%s.txt" % metric_score, "w") as f:
                 f.write(str(loss))
             model_json = model.to_json()
-            with open("best_dsc_model.json", "w") as json_file:
+            with open("best_metric_score_model.json", "w") as json_file:
                 json_file.write(model_json)
-            model.save_weights("best_dsc_weights.hdf5")
+            model.load_weights("best_test_weights.hdf5")
+            model.save_weights("best_%s_weights.hdf5" % metric_score)
             data.save_results_on_paths(model, training_paths, "results_training", rgb_preprocessor=rgb_preprocessor)
             data.save_results_on_paths(model, test_paths, "results_test", rgb_preprocessor=rgb_preprocessor)
 
+        os.remove("best_test_weights.hdf5")
+        with open("hyperparameter_search_result.txt", "a+") as f:
+            f.write("{} {:.4f}, {}\n".format(metric_score, loss, params))
+
         plt.clf()
         for key in history.history.keys():
-            if key in ["val_dice_coef", "dice_coef"]:
+            if key in ["val_%s" % metric_score, metric_score]:
                 plt.plot(history.history[key])
         plt.ylim((0.0, 1.0))
         plt.title('model losses')
         plt.ylabel('value')
         plt.xlabel('epoch')
-        plt.legend([key for key in history.history.keys() if key in ["val_dice_coef", "dice_coef"]], loc='upper left')
+        plt.legend([key for key in history.history.keys() if key in ["val_%s" % metric_score, metric_score]],
+                   loc='upper left')
         global iteration
         iteration += 1
         if not os.path.exists("training_histories"):
@@ -189,7 +198,7 @@ def main(args):
         plt.savefig(os.path.join("training_histories", "history_iteration_%s.png" % iteration))
 
         tf.keras.backend.clear_session()
-        print('Test DSC:', loss)
+        print('Test %s:' % metric_score, loss)
         print('Params: %s' % str(params))
         return {'loss': -loss, 'status': STATUS_OK}
 
@@ -212,8 +221,9 @@ def main(args):
     with open("my_model.hyperopt", "wb") as f:
         pickle.dump(trials, f)
 
-    result = "Best DSC: {:.4f}\nParameters: {}\n\nDSC, Parameters\n".format(-trials.best_trial["result"]["loss"],
-                                                                            space_eval(space, best))
+    result = "Best {}: {:.4f}\nParameters: {}\n\nDSC, Parameters\n".format(metric_score,
+                                                                           -trials.best_trial["result"]["loss"],
+                                                                           space_eval(space, best))
     for trial in range(len(trials)):
         trial_result = trials.results[trial]['loss']
         trial_dict = {}
@@ -223,8 +233,8 @@ def main(args):
     with open("hyperparameter_search_result.txt", "w") as f:
         f.write(result.strip())
 
-    if os.path.exists("best_dsc.txt"):
-        os.remove("best_dsc.txt")
+    if os.path.exists("best_%s.txt" % metric_score):
+        os.remove("best_%s.txt" % metric_score)
 
 
 def parse_args(args=None):

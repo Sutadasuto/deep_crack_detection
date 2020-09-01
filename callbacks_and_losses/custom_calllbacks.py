@@ -1,5 +1,5 @@
 from tensorflow.keras.callbacks import Callback
-from data import test_image_generator, train_image_generator
+from data import test_image_generator, train_image_generator_clean
 
 import numpy as np
 
@@ -74,3 +74,28 @@ class EarlyStoppingAtMinValLoss(Callback):
     def on_train_end(self, logs=None):
         if self.stopped_epoch > 0:
             print('Epoch %05d: early stopping' % (self.stopped_epoch + 1))
+
+
+class EarlyStoppingAtMinValLoss_Clean(EarlyStoppingAtMinValLoss):
+
+    def __init__(self, paths, file_path="best_val_loss.hdf5", patience=0, rgb_preprocessor=None, resize_nocrop=False, size=None, normalize_input=False):
+        super(EarlyStoppingAtMinValLoss_Clean, self).__init__(paths=paths, file_path=file_path, patience=patience,
+                                                              rgb_preprocessor=rgb_preprocessor)
+        self.resize_nocrop = resize_nocrop
+        self.input_shape = size
+        self.normalize_x = normalize_input
+
+    def on_train_begin(self, logs=None):
+        # The number of epoch it has waited when loss is no longer minimum.
+        self.wait = 0
+        # The epoch the training stops at.
+        self.stopped_epoch = 0
+        # Initialize the best as infinity.
+        self.best = np.Inf
+        if self.input_shape is None:
+            self.input_shape = tuple(self.model.input.shape[1:-1])
+            if self.input_shape == (None, None):
+                self.input_shape = None
+        self.image_generator = train_image_generator_clean(self.paths, self.input_shape, batch_size=1,
+                                                    rgb_preprocessor=self.rgb_preprocessor, data_augmentation=False,
+                                                           resize=self.resize_nocrop, normalize_x=self.normalize_x)
