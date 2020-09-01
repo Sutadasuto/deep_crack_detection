@@ -37,6 +37,7 @@ def main(args):
             with open(args.model, 'r') as f:
                 json = f.read()
             model = model_from_json(json)
+            args.model = os.path.splitext(os.path.split(args.model)[-1])[0]
         except JSONDecodeError:
             raise ValueError("JSON decode error found. File path %s exists but could not be decoded; verify if JSON encoding was "
                   "performed properly." % args.model)
@@ -116,7 +117,10 @@ def main(args):
     print("Evaluating the model...")
     print("On training paths:")
     data.save_results_on_paths(model, training_paths, results_train_dir)
-    os.replace("%s.hdf5" % args.model, os.path.join(results_train_dir, "%s.hdf5" % args.model))
+    if args.epochs > 0:
+        os.replace("%s.hdf5" % args.model, os.path.join(results_train_dir, "%s.hdf5" % args.model))
+    else:
+        model.save_weights(os.path.join(results_train_dir, "%s.hdf5" % args.model))
     print("\nOn test paths:")
     data.save_results_on_paths(model, test_paths, results_test_dir)
     metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
