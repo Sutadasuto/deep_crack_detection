@@ -1,4 +1,5 @@
 import tensorflow as tf
+
 tf.compat.v1.disable_eager_execution()
 
 import argparse
@@ -39,8 +40,9 @@ def main(args):
             model = model_from_json(json)
             args.model = os.path.splitext(os.path.split(args.model)[-1])[0]
         except JSONDecodeError:
-            raise ValueError("JSON decode error found. File path %s exists but could not be decoded; verify if JSON encoding was "
-                  "performed properly." % args.model)
+            raise ValueError(
+                "JSON decode error found. File path %s exists but could not be decoded; verify if JSON encoding was "
+                "performed properly." % args.model)
     # ...Otherwise, create model from this project by using a proper key name
     else:
         model = models_dict[args.model]((input_size[0], input_size[1], 1))
@@ -68,9 +70,6 @@ def main(args):
                   metrics=[custom_losses.dice_coef, 'binary_crossentropy',
                            keras_metrics.Precision(), keras_metrics.Recall()])
 
-    # model_checkpoint = ModelCheckpoint('%s_best.hdf5' % args.model, monitor='loss', verbose=1, save_best_only=True)
-    # es = EarlyStopping(monitor='loss', mode='min', verbose=1, patience=20)
-
     # Here we find to paths to all images from the selected datasets
     paths = data.create_image_paths(args.dataset_names, args.dataset_paths)
     # Data is split into 80% for training data and 20% for validation data. A custom seed is used for reproducibility.
@@ -89,8 +88,8 @@ def main(args):
     print("\nProceeding to train.")
 
     # A customized early stopping callback. At each epoch end, the callback will test the current weights on the
-    # validation set (using whole iamges instead of patches) and stop the training if the minimum validation loss hasn't
-    # imporved over the last 'patience' epochs.
+    # validation set (using whole images instead of patches) and stop the training if the minimum validation loss hasn't
+    # improved over the last 'patience' epochs.
     es = EarlyStoppingAtMinValLoss(test_paths, file_path='%s_best.hdf5' % args.model, patience=20,
                                    rgb_preprocessor=rgb_preprocessor)
 
@@ -104,7 +103,8 @@ def main(args):
                         steps_per_epoch=n_train_samples // args.batch_size)
     print("Finished!")
 
-    # Save the models of the last training epoch
+    # Save the weights of the last training epoch. If trained on a single epoch, these weights are equal to the
+    # best weights (to avoid redundancy, no new weights file is saved)
     if args.epochs > 0:
         model.save_weights("%s.hdf5" % args.model)
         print("Last epoch's weights saved.")
@@ -123,6 +123,8 @@ def main(args):
         model.save_weights(os.path.join(results_train_dir, "%s.hdf5" % args.model))
     print("\nOn test paths:")
     data.save_results_on_paths(model, test_paths, results_test_dir)
+    # test_image_generator() will resize images to evaluation_input_shape if the network expects a specific input
+    # size, but the default models included in this repository allow any input size
     metrics = model.evaluate(x=data.test_image_generator(test_paths, evaluation_input_shape, batch_size=1,
                                                          rgb_preprocessor=rgb_preprocessor),
                              steps=test_paths.shape[1])
@@ -134,6 +136,8 @@ def main(args):
     with open(os.path.join(results_test_dir, "results.txt"), "w") as f:
         f.write(result_string.strip())
 
+    # If model was trained more than one epoch, evaluate the best validation weights in the same test data. Otherwise,
+    # the best validation weights are the weights at the end of the only training epoch
     if args.epochs > 1:
         # Load results using the min val loss epoch's weights
         model.load_weights('%s_best.hdf5' % args.model)
@@ -154,32 +158,38 @@ def main(args):
         with open(os.path.join(results_test_min_loss_dir, "results.txt"), "w") as f:
             f.write(result_string.strip())
 
-    print("\nPlotting training history...")
-    import pandas as pd
-    pd.DataFrame.from_dict(history.history).to_csv(os.path.join(results_dir, "training_history.csv"), index=False)
-    # summarize history for loss
-    for key in history.history.keys():
-        plt.plot(history.history[key])
-    plt.ylim((0.0, 1.0 + args.alpha))
-    plt.title('model losses')
-    plt.ylabel('value')
-    plt.xlabel('epoch')
-    plt.legend(history.history.keys(), loc='upper left')
-    plt.savefig(os.path.join(results_dir, "training_losses.png"))
-    # plt.show()
+        # If trained more than one epoch, save the training history as csv and plot it
+        print("\nPlotting training history...")
+        import pandas as pd
+        pd.DataFrame.from_dict(history.history).to_csv(os.path.join(results_dir, "training_history.csv"), index=False)
+        # summarize history for loss
+        for key in history.history.keys():
+            plt.plot(history.history[key])
+        plt.ylim((0.0, 1.0 + args.alpha))
+        plt.title('model losses')
+        plt.ylabel('value')
+        plt.xlabel('epoch')
+        plt.legend(history.history.keys(), loc='upper left')
+        plt.savefig(os.path.join(results_dir, "training_losses.png"))
+        # plt.show()
 
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_names", type=str, nargs="+",
-                        help="Must be one of: 'cfd', 'cfd-pruned', 'aigle-rn', 'esar'")
+                        help="Must be one of: 'cfd', 'cfd-pruned', 'aigle-rn', 'esar', 'crack500', 'gaps384', "
+                             "'cracktree200'")
     parser.add_argument("--dataset_paths", type=str, nargs="+",
-                        help="Path to the folders containing the datasets as downloaded from the original source.")
-    parser.add_argument("--model", type=str, default="unet", help="Network to use.")
+                        help="Path to the folders containing the respective datasets as downloaded from the original "
+                             "source.")
+    parser.add_argument("--model", type=str, default="uvgg19",
+                        help="Network to use. It can be either a name from 'models.available_models.py' or a path to a "
+                             "hdf5 file.")
     parser.add_argument("--training_crop_size", type=int, nargs=2, default=[256, 256],
                         help="For memory efficiency and being able to admit multiple size images,"
                              "subimages are created by cropping original images to this size windows")
-    parser.add_argument("--alpha", type=float, default=0.5, help="Alpha for loss BCE_loss + alpha*DSC_loss")
+    parser.add_argument("--alpha", type=float, default=0.5,
+                        help="Alpha for objective function: BCE_loss + alpha*DSC_loss")
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for Adam optimizer.")
     parser.add_argument("--epochs", type=int, default=150, help="Number of epochs to train.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training.")
