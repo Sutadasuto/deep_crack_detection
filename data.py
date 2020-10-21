@@ -21,6 +21,9 @@ def create_image_paths(dataset_names, dataset_paths):
             or_im_paths, gt_paths = paths_generator_crack_dataset(dataset_path, "ESAR")
         elif dataset_name == "crack500" or dataset_name == "gaps384" or dataset_name == "cracktree200":
             or_im_paths, gt_paths = paths_generator_fphb(dataset_path, dataset_name)
+        elif dataset_name == "syncrack":
+            or_im_paths, gt_paths = paths_generator_syncrack(dataset_path)
+
         paths = np.concatenate([paths, [or_im_paths, gt_paths]], axis=-1)
     return paths
 
@@ -108,6 +111,17 @@ def paths_generator_fphb(dataset_path, dataset_name):
                                       key=lambda f: f.lower())
 
     return training_image_paths, ground_truth_image_paths
+
+
+def paths_generator_syncrack(dataset_path):
+    ground_truth_image_paths = sorted([os.path.join(dataset_path, f) for f in os.listdir(dataset_path)
+                                       if not f.startswith(".") and f.endswith("_gt.png")], key=lambda f: f.lower())
+
+    training_image_paths = [os.path.join(dataset_path, os.path.split(f)[1].replace("_gt.png", ".jpg")) for
+                            f in ground_truth_image_paths]
+
+    return training_image_paths, ground_truth_image_paths
+
 
 ### Loading images for Keras
 
