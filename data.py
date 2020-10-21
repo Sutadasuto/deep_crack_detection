@@ -23,6 +23,8 @@ def create_image_paths(dataset_names, dataset_paths):
             or_im_paths, gt_paths = paths_generator_fphb(dataset_path, dataset_name)
         elif dataset_name == "syncrack":
             or_im_paths, gt_paths = paths_generator_syncrack(dataset_path)
+        elif dataset_name == "text":
+            or_im_paths, gt_paths = paths_generator_from_text(dataset_path)
 
         paths = np.concatenate([paths, [or_im_paths, gt_paths]], axis=-1)
     return paths
@@ -121,6 +123,13 @@ def paths_generator_syncrack(dataset_path):
                             f in ground_truth_image_paths]
 
     return training_image_paths, ground_truth_image_paths
+
+
+def paths_generator_from_text(text_file_path):
+    with open(text_file_path, "r") as file:
+        lines = file.readlines()
+    paths_array = np.concatenate([np.array([line.strip().split(";")]) for line in lines], axis=0)
+    return paths_array[:, 0], paths_array[:, 1]
 
 
 ### Loading images for Keras
@@ -442,7 +451,7 @@ def train_image_generator(paths, input_size, batch_size=1, resize=False, count_s
                 j = 0
                 i += 1
                 if count_samples_mode:
-                    print("\r%s/%s paths analyzed so far" % (str(i).zfill(len(str(n_images))), n_images), end='')
+                    print("\r%s/%s paths analyzed so far" % (str(i + 1).zfill(len(str(n_images))), n_images), end='')
 
                 if i == n_images:
                     if count_samples_mode:

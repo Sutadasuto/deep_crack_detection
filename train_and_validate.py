@@ -79,6 +79,11 @@ def main(args):
     training_paths = paths[:, :n_training_images]
     test_paths = paths[:, n_training_images:]
 
+    if args.save_test_paths:
+        with open("test_paths.txt", "w+") as file:
+            print("Test paths saved to 'test_paths.txt'")
+            file.write("\n".join([";".join(paths) for paths in test_paths.transpose()]))
+
     # As input images can be of different sizes, here we calculate the total number of patches used for training.
     print("Calculating the total number of samples after cropping and data augmentatiton. "
           "This may take a while, don't worry.")
@@ -198,6 +203,10 @@ def parse_args(args=None):
     parser.add_argument("--use_da", type=str, default="True", help="If 'True', training will be done using data "
                                                                    "augmentation. If 'False', just raw images will be "
                                                                    "used.")
+    parser.add_argument("--save_test_paths", type=str, default="False", help="If 'True', a text file 'test_paths.txt' "
+                                                                             "containing the paths of the images used "
+                                                                             "for testing will be saved in the "
+                                                                             "project's root.")
 
     args_dict = parser.parse_args(args)
     for attribute in args_dict.__dict__.keys():
